@@ -42,6 +42,7 @@ import {
 } from '@metaplex-foundation/mpl-candy-machine';
 import { mergeGuardSets } from './guard-merge';
 import type { CandyMintFamily } from './decode';
+import { adapterFor } from './cosigned';
 
 function rpcUrl(): string {
   const key = process.env.HELIUS_API_KEY;
@@ -77,6 +78,12 @@ const SUPPORTED_GUARDS = new Set([
   'freezeSolPayment', 'freezeTokenPayment',
 ]);
 
+export interface CosignerSummary {
+  adapter: string;
+  signerKey: string;
+  burn: { mint: string; amount: string; decimals: number } | null;
+}
+
 export interface MintLimitStatus {
   id: number;
   limit: number;
@@ -106,6 +113,11 @@ export interface GuardGroupSummary {
    *  revert) for any other wallet, so the frontend disables Mint early when
    *  the connected wallet != this. */
   addressGateAddress: string | null;
+  /** Set when the group's thirdPartySigner is a project cosigner we have an
+   *  adapter for (cosigned.ts). The tool then gets the signature from the
+   *  project's own signing endpoint; `burn` is the extra per-mint token burn
+   *  their server requires in the tx. */
+  cosigner: CosignerSummary | null;
   mintLimit: MintLimitStatus | null;
   /** Unix seconds, as decimal strings (guard dates are on-chain i64/u64 —
    *  stringified the same way solPaymentLamports is to survive JSON without
@@ -282,6 +294,7 @@ function summarizeGuardSet(
     solFixedFeeLamports,
     solFixedFeeDestination,
     addressGateAddress,
+    cosigner: null,
     mintLimit,
     startDateUnix,
     endDateUnix,
@@ -346,6 +359,7 @@ async function inspectCore(candyMachineAddr: string, candyGuardAddr: string, wal
   if (guard) {
     if (guard.groups.length === 0) groups.push(summarizeGuardSet(null, guard.guards));
     else for (const g of guard.groups) groups.push(summarizeGuardSet(g.label, mergeGuardSets(guard.guards, g.guards)));
+    applyCosignerAdapters(groups, guard, candyMachineAddr);
     if (wallet) await fillMintLimitUsage('core', umi, groups, candyMachineAddr, candyGuardAddr, wallet);
   } else {
     alive = false;
@@ -387,6 +401,35 @@ async function inspectLegacy(candyMachineAddr: string, candyGuardAddr: string, w
   }
 
   return { alive, candyMachine: candyMachineAddr, candyGuard: candyGuardAddr, collection, itemsRedeemed, itemsAvailable, groups };
+}
+
+// thirdPartySigner is supported only for a known project cosigner on its own
+// candy machine AND a group that project's server actually cosigns — any other
+// group stays unsupported (its signature can't be obtained).
+function applyCosignerAdapters(
+  groups: GuardGroupSummary[],
+  guard: { guards: unknown; groups: { label: string; guards: unknown }[] },
+  candyMachineAddr: string,
+): void {
+  for (const g of groups) {
+    if (!g.unsupportedGuards.includes('thirdPartySigner')) continue;
+    const raw = g.label == null
+      ? guard.guards
+      : mergeGuardSets(guard.guards as never, (guard.groups.find((x) => x.label === g.label)?.guards ?? guard.guards) as never);
+    const adapter = adapterFor(raw as Record<string, GuardOption>, candyMachineAddr);
+    if (!adapter) continue;
+    if (!adapter.signableGroups.includes(g.label)) {
+      g.unsupportedGuards = g.unsupportedGuards.map((n) => (n === 'thirdPartySigner' ? `thirdPartySigner (${adapter.id} won't cosign this group)` : n));
+      continue;
+    }
+    g.unsupportedGuards = g.unsupportedGuards.filter((n) => n !== 'thirdPartySigner');
+    g.supported = g.unsupportedGuards.length === 0;
+    g.cosigner = {
+      adapter: adapter.id,
+      signerKey: adapter.signerKey,
+      burn: adapter.burn ? { mint: adapter.burn.mint, amount: adapter.burn.amount.toString(), decimals: adapter.burn.decimals } : null,
+    };
+  }
 }
 
 export async function inspectCandyMachine(

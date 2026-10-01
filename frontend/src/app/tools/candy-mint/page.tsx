@@ -75,6 +75,9 @@ interface GuardGroupSummary {
   // guards' amounts + destinations, incl. freeze*). Frozen into the mint
   // intent and re-checked EXACTLY against the FINAL build.
   payment: PaymentAuthorization;
+  // Known project cosigner (thirdPartySigner) — signature comes from the
+  // project's own endpoint via /cosign. `burn` = extra per-mint token burn.
+  cosigner?: { adapter: string; signerKey: string; burn: { mint: string; amount: string; decimals: number } | null } | null;
 }
 
 type CandyMintFamily = 'core' | 'legacy';
@@ -475,6 +478,29 @@ async function buildAndAuditFinal(
   };
 }
 
+// Token side of the cost line: tokenPayment and/or a cosigner-required burn.
+function costLabelFor(g: GuardGroupSummary | null | undefined): string | null {
+  const parts: string[] = [];
+  const tp = tokenCostLabelFor(g?.tokenPayment ?? null);
+  if (tp) parts.push(tp);
+  const burn = g?.cosigner?.burn;
+  if (burn) parts.push(`${tokenCostLabelFor({ mint: burn.mint, amount: burn.amount, decimals: burn.decimals })} burned`);
+  return parts.length ? parts.join(' + ') : null;
+}
+
+// Cosigned drops: wallet-signed tx -> project cosigner (backend proxy, which
+// verifies the message came back unchanged) -> fully-signed tx to broadcast.
+async function requestCosign(walletSignedBase64: string, lastValidBlockHeight: number): Promise<string> {
+  const r = await fetch(`${API_BASE}/api/tools/candy-mint/cosign`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ transactionBase64: walletSignedBase64, lastValidBlockHeight }),
+  });
+  const j = await r.json() as { ok: boolean; transactionBase64?: string; error?: string };
+  if (!j.ok || !j.transactionBase64) throw new Error(`Cosigner refused — nothing was sent. ${j.error ?? `HTTP ${r.status}`}`);
+  return j.transactionBase64;
+}
+
 // NOTE: the pre-vs-final SOL-DELTA is deliberately NOT gated by a tolerance.
 // Mint-price authorization is enforced EXACTLY via paymentAuthorizationMatches
 // (amounts + destinations from the backend's fresh guard read vs the frozen
@@ -708,6 +734,7 @@ export default function CandyMintPage() {
         // group — frozen verbatim, re-checked EXACTLY at final build.
         payment: selected.payment ?? emptyPayment(),
         enabledGuards: selected.enabledGuards ?? [],
+        cosigner: selected.cosigner?.signerKey ?? null,
       },
     });
   }
@@ -750,7 +777,7 @@ export default function CandyMintPage() {
         kind: 'ready_to_sign',
         solDeltaLamports: simJ.solDeltaLamports ?? null,
         botTaxDetected: simJ.botTaxDetected ?? false,
-        tokenCostLabel: tokenCostLabelFor(selected?.tokenPayment ?? null),
+        tokenCostLabel: costLabelFor(selected),
         intent,
       });
     } catch (err) {
@@ -823,7 +850,10 @@ export default function CandyMintPage() {
             if (!fresh.ok) staleBlocksLeft = fresh.blocksLeft ?? 0;
             return fresh.ok;
           },
-          { sendPath: `${API_BASE}/api/tools/candy-mint/send-tx`, expectWallet: intent.wallet },
+          {
+            sendPath: `${API_BASE}/api/tools/candy-mint/send-tx`, expectWallet: intent.wallet,
+            cosign: intent.cosigner ? (_i, b64) => requestCosign(b64, final.lastValidBlockHeight) : undefined,
+          },
         );
         signature = sigs[0] ?? signature;
       } catch (err) {
@@ -919,7 +949,7 @@ export default function CandyMintPage() {
   }
 
   async function runMintBatch(intent: FrozenMintIntent, total: number) {
-    const batchTokenCost = tokenCostLabelFor(selected?.tokenPayment ?? null);
+    const batchTokenCost = costLabelFor(selected);
     const items: BatchItem[] = Array.from({ length: total }, () => ({ status: 'pending' }));
     const setItems = () => setFlow({ kind: 'batch', total, items: [...items], intent });
     setItems();
@@ -1085,7 +1115,12 @@ export default function CandyMintPage() {
           setItems();
         },
         shouldSend,
-        { sendPath: `${API_BASE}/api/tools/candy-mint/send-tx`, expectWallet: intent.wallet },
+        {
+          sendPath: `${API_BASE}/api/tools/candy-mint/send-tx`, expectWallet: intent.wallet,
+          cosign: intent.cosigner
+            ? (pos, b64) => requestCosign(b64, lastValidByItem.get(signableItemIndexes[pos]) ?? 0)
+            : undefined,
+        },
       );
 
       // ── phase 3: confirm each SENT item, then verify its asset (H1) ────

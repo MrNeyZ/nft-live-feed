@@ -1,0 +1,47 @@
+{
+  "capturedAt": "2026-10-01T07:42:00.443Z",
+  "family": "core",
+  "note": "printerotc cosigned (thirdPartySigner) build — src/candy-mint/cosigned.ts",
+  "frozenIntent": {
+    "family": "core",
+    "candyMachine": "CVWE9UzXbXmpQjZVAiRLTJoyhhfYZwuUkgbyqYe68gmw",
+    "candyGuard": "AyTaFTC2GynH43fusoWgYA5MsaWf2dBySjnaejP9ChXN",
+    "collection": "E2cjysGtVPjDiL7RtfkyTgou8g2vRRfgkh4JtWtopJoA",
+    "group": "normal",
+    "wallet": "7fa16sdEU7PmpmZ9oAqHNyUJCKsVzuVeYBMBe1VCfm7Z",
+    "collectionUpdateAuthority": null,
+    "enabledGuards": [
+      "redeemedAmount",
+      "solPayment",
+      "thirdPartySigner"
+    ],
+    "cosigner": "DaprcA3JKHFeoMN1PdXGgDTtU6YHNeiNz51kWJQ3NZqX"
+  },
+  "build": {
+    "ok": true,
+    "transactionBase64": "AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAArKQmzOdeggvjyBX4eX2xtigg6nCN2Fpuz9a+5ZlrDrnMyGjZzQOMwwkmbRU84ekx7BhwHroVYVNSBSHy9F9DwMACRJjB4HrQDuh2IfwcZSrOZ5g0Q/Kn8xIWnAsikjY7y25TLr2hRuGvZ4+cYc1ilGpPaQ/6zwanghouuptNp1PD24Gv5G/QT+fUCqnhHODasoI1cc/XzhQdqWVf7Sk+oyZAXsnOIbraaRL9F2Ua10rV2byd6PxAE6sXK6Vh/GhYYtLXz+iYYhbycga1dV5RlFCZ+KyFqH9+C03rtu7iOW2pAphfK0aNWhNNQ5uwa4FMVuCxK1aJlCJQH8AZGDwbFmiVL+O1FoNXEJxTjkDLhyW47SSAK7x+3b58x1eO1Bz8eEEtqq93ZOWRN8fZPSkULMC6c9lcqLNTMa32eRM5/shvGzywZHsYnKIe/fe7iXKihtHjf3gMd4Txcv9C/lKaZApkrEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJQvwQ6GnKyczrRW/oNEhcnem2t3zJV/N4HBh9ZP+QZ5qJqS2rXkim3qXJfiAHx9p5lV2NcHxxF5T5CDdKy0OfuomqTuG+b672Ed277qpd2P8gXtM5ccKUAv14yhA6amCQMGRm/lIRcy/+ytunLDm+e8jOW7xfcSayxDmzpAAAAAr1SrEL2XpUKgnvezmIndDNOUpMzp36bNyX6+LSNbp0gGp9UXGHvRZjXa1ARV/cLAwSTGjyFWdaXbustfCAAAAAan1RcZLwqvxvJl4/t3zHragsUp0L47E24tAFUgAAAABt324e51j94YQl285GzN2rYa/E2DuQ0n/r35KNihi/z58imi0MoTBQwU9DZld3GQ+vjnlPtOoNdu/XKdiZIugQQNAAUCADUMAA0ACQNQwwAAAAAAABEDBAMACg8A6HZIFwAAAAYMDwoLBwYAAAwCCA4JDxAFAReRYsB2uJN2aAAAAAABBgAAAG5vcm1hbA==",
+    "blockhash": "Hpggpkkyuk18unBSjnQPtkg3BpeJ8NAqCCUaqVjrFDwN",
+    "lastValidBlockHeight": 430262526,
+    "asset": "DtomePwaGkTfstBay1xRfVCSdijLBN5KXg1cuugAXAGr",
+    "feePayer": "7fa16sdEU7PmpmZ9oAqHNyUJCKsVzuVeYBMBe1VCfm7Z",
+    "requiresSignatureFrom": "7fa16sdEU7PmpmZ9oAqHNyUJCKsVzuVeYBMBe1VCfm7Z",
+    "group": "normal",
+    "cosigner": "DaprcA3JKHFeoMN1PdXGgDTtU6YHNeiNz51kWJQ3NZqX",
+    "resolvedGuardPayment": {
+      "solPaymentLamports": "500000000",
+      "solPaymentDestination": "9PgeXzGiX3Tz5GzaBFcaeCFf9FULjP41SDiP1754FBcA",
+      "solFixedFeeLamports": null,
+      "solFixedFeeDestination": null,
+      "freezeSolPaymentLamports": null,
+      "freezeSolPaymentDestination": null,
+      "tokenPayment": null,
+      "freezeTokenPayment": null,
+      "addressGateAddress": null
+    },
+    "resolvedEnabledGuards": [
+      "redeemedAmount",
+      "solPayment",
+      "thirdPartySigner"
+    ]
+  }
+}

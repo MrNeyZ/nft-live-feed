@@ -52,9 +52,9 @@
 // update the constants, and the regression tests force a deliberate review.
 // Do NOT loosen a check to make a synthetic fixture pass.
 
-import { Transaction } from '@solana/web3.js';
+import { PublicKey, Transaction } from '@solana/web3.js';
 import type { FrozenMintIntent } from './intent';
-import { intentPaymentDestinations } from './intent';
+import { intentPaymentDestinations, KNOWN_COSIGNERS } from './intent';
 
 // ── program ids ───────────────────────────────────────────────────────────
 export const PROGRAMS = {
@@ -112,6 +112,7 @@ const GUARD_MINT_ACCOUNTS: Record<string, { core: number; legacy: number }> = {
   endDate:         { core: 0, legacy: 0 },
   redeemedAmount:  { core: 0, legacy: 0 },
   addressGate:     { core: 0, legacy: 0 },
+  thirdPartySigner:{ core: 1, legacy: 1 },  // cosigner (signer, r)
   solPayment:      { core: 1, legacy: 1 },  // destination (w)
   solFixedFee:     { core: 1, legacy: 1 },  // destination (w) — core SDK only in practice
   mintLimit:       { core: 1, legacy: 1 },  // mint-counter PDA (w, deterministic)
@@ -143,6 +144,28 @@ const FORBIDDEN_SYSTEM_OPCODES = new Set([
   2,  // Transfer
   11, // TransferWithSeed
 ]);
+
+// Token-2022 BurnChecked of exactly `burn.amount` from the wallet's own ATA.
+function checkCosignerBurn(
+  ix: Transaction['instructions'][number],
+  wallet: string,
+  burn: { mint: string; amount: bigint; decimals: number },
+): string | null {
+  const d = ix.data;
+  if (d.length !== 10 || d[0] !== 15) return 'cosigned burn is not a Token-2022 BurnChecked';
+  if (d.readBigUInt64LE(1) !== burn.amount) return `cosigned burn amount ${d.readBigUInt64LE(1)} != expected ${burn.amount}`;
+  if (d[9] !== burn.decimals) return 'cosigned burn decimals mismatch';
+  const [ata] = PublicKey.findProgramAddressSync(
+    [new PublicKey(wallet).toBuffer(), new PublicKey(PROGRAMS.token2022).toBuffer(), new PublicKey(burn.mint).toBuffer()],
+    new PublicKey(PROGRAMS.ataProgram),
+  );
+  const k = ix.keys;
+  if (k.length !== 3) return 'cosigned burn has unexpected accounts';
+  if (!k[0].pubkey.equals(ata) || !k[1].pubkey.equals(new PublicKey(burn.mint)) || k[2].pubkey.toBase58() !== wallet || !k[2].isSigner) {
+    return 'cosigned burn accounts are not the wallet\'s own token account / expected mint';
+  }
+  return null;
+}
 
 export type AuditResult = { ok: true } | { ok: false; reason: string };
 
@@ -177,6 +200,15 @@ export function auditCandyMintTx(
     return fail('connected wallet changed since the mint was reviewed — reconnect and start over');
   }
 
+  // Cosigned drop (KNOWN_COSIGNERS): the project's signing endpoint only
+  // accepts its own tx shape — CU limit + one exact per-mint token burn before
+  // the guard ix + the cosigner as the one other unsigned signer. Pinned from
+  // the local table, not from the backend.
+  const cosigner = intent.cosigner ? KNOWN_COSIGNERS[intent.cosigner] ?? null : null;
+  if (intent.cosigner && !cosigner) return fail('unknown cosigner in reviewed intent');
+  const expectedUnitLimit = cosigner ? cosigner.computeUnitLimit : EXPECTED_COMPUTE_UNIT_LIMIT;
+  let burnIdx = -1;
+
   const ixs = tx.instructions;
   if (ixs.length < 3) return fail(`expected 3 top-level instructions, got ${ixs.length}`);
 
@@ -196,8 +228,8 @@ export function auditCandyMintTx(
         sawLimit = true;
         if (ixs[i].data.length < 5) return fail('malformed SetComputeUnitLimit');
         const units = ixs[i].data.readUInt32LE(1);
-        if (units !== EXPECTED_COMPUTE_UNIT_LIMIT) {
-          return fail(`compute unit limit ${units} != expected ${EXPECTED_COMPUTE_UNIT_LIMIT}`);
+        if (units !== expectedUnitLimit) {
+          return fail(`compute unit limit ${units} != expected ${expectedUnitLimit}`);
         }
       } else if (op === CB_SET_UNIT_PRICE) {
         if (sawPrice) return fail('duplicate SetComputeUnitPrice');
@@ -212,6 +244,12 @@ export function auditCandyMintTx(
       }
       continue;
     }
+    if (cosigner?.burn && pid === PROGRAMS.token2022 && guardIdx === -1 && burnIdx === -1) {
+      const err = checkCosignerBurn(ixs[i], intent.wallet, cosigner.burn);
+      if (err) return fail(err);
+      burnIdx = i;
+      continue;
+    }
     if (pid === guardProgram) {
       if (guardIdx !== -1) return fail('more than one Candy Guard instruction');
       guardIdx = i;
@@ -220,12 +258,14 @@ export function auditCandyMintTx(
     return fail(`unexpected top-level program ${pid.slice(0, 8)}… (only ComputeBudget + the ${intent.family} Candy Guard are allowed)`);
   }
   if (guardIdx === -1) return fail(`no ${intent.family} Candy Guard instruction found`);
+  if (cosigner?.burn && burnIdx === -1) return fail('cosigned mint is missing its required token burn');
   if (guardIdx !== ixs.length - 1) return fail('instructions present after the Candy Guard instruction');
 
   // 4 — belt-and-braces: no forbidden value-moving instruction anywhere at
   //     the top level (step 3 already restricts programs, this names the
   //     specific danger for a clearer message and future-proofs the check).
   for (let i = 0; i < ixs.length; i++) {
+    if (i === burnIdx) continue; // exact-checked above
     const pid = ixs[i].programId.toBase58();
     const op = ixs[i].data[0];
     if (pid === PROGRAMS.system && FORBIDDEN_SYSTEM_OPCODES.has(op)) {
@@ -312,8 +352,16 @@ export function auditCandyMintTx(
   if (!sigForWallet) return fail('connected wallet is not a required signer of the transaction');
   if (sigForWallet.signature) return fail('connected wallet signature slot is already filled (unexpected)');
   const otherUnfilled = tx.signatures.filter(
-    (s) => !s.signature && s.publicKey.toBase58() !== intent.wallet,
+    (s) => !s.signature && s.publicKey.toBase58() !== intent.wallet
+      && !(cosigner && s.publicKey.toBase58() === intent.cosigner),
   );
+  if (cosigner) {
+    const slot = tx.signatures.find((s) => s.publicKey.toBase58() === intent.cosigner);
+    if (!slot) return fail('cosigned mint does not require the cosigner signature');
+    if (!keys.some((k) => k.pubkey.toBase58() === intent.cosigner && k.isSigner)) {
+      return fail('cosigner is not the Candy Guard thirdPartySigner account');
+    }
+  }
   if (otherUnfilled.length > 0) {
     return fail(`unexpected additional unsigned signer(s): ${otherUnfilled.map((s) => s.publicKey.toBase58().slice(0, 6)).join(', ')}`);
   }

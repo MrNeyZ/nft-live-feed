@@ -22,6 +22,7 @@ import {
 } from './intent';
 import coreFixtureRaw from './fixtures/core-mintv1.json';
 import legacyFixtureRaw from './fixtures/legacy-mintv1.json';
+import cosignedFixtureRaw from './fixtures/core-cosigned-printer.json';
 
 interface Fixture {
   family: string;
@@ -62,6 +63,7 @@ function intentOf(fx: Fixture): FrozenMintIntent {
     // At capture time the reviewed payment == what the build resolved.
     payment: { ...fx.build.resolvedGuardPayment },
     enabledGuards: fi.enabledGuards ?? [],
+    cosigner: (fi as { cosigner?: string | null }).cosigner ?? null,
   };
 }
 
@@ -540,6 +542,41 @@ check('empty vs empty -> PASS', () =>
 check('canonicalGuards is sorted + unique', () => {
   assert.deepStrictEqual(canonicalGuards(['mintLimit', 'solPayment', 'mintLimit', 'botTax']), ['botTax', 'mintLimit', 'solPayment']);
 });
+
+// ── F. third-party cosigned drop (printerotc, real builder output) ─────────
+console.log('\nF. cosigned (thirdPartySigner) drop');
+{
+  const fx = cosignedFixtureRaw as unknown as Fixture;
+  const intent = intentOf(fx);
+  const asset = fx.build.asset;
+  const ok = (b64: string) => auditCandyMintTx(b64, intent, { expectedAsset: asset });
+  check('real cosigned build -> PASS', () => {
+    const r = ok(fx.build.transactionBase64);
+    assert.ok(r.ok, !r.ok ? r.reason : '');
+  });
+  check('same tx WITHOUT cosigner in intent -> REJECT', () => {
+    const r = auditCandyMintTx(fx.build.transactionBase64, { ...intent, cosigner: null }, { expectedAsset: asset });
+    assert.strictEqual(r.ok, false);
+  });
+  check('burn amount tampered -> REJECT', () => {
+    const tx = parse(fx.build.transactionBase64);
+    const burn = tx.instructions.find((ix) => ix.programId.toBase58() === 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb')!;
+    burn.data.writeBigUInt64LE(BigInt('999000000000'), 1);
+    const r = ok(reserialize(tx));
+    assert.ok(!r.ok && /burn amount/.test(r.reason), !r.ok ? r.reason : 'passed');
+  });
+  check('burn instruction removed -> REJECT', () => {
+    const tx = parse(fx.build.transactionBase64);
+    tx.instructions = tx.instructions.filter((ix) => ix.programId.toBase58() !== 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+    assert.strictEqual(ok(reserialize(tx)).ok, false);
+  });
+  check('second Token-2022 instruction -> REJECT', () => {
+    const tx = parse(fx.build.transactionBase64);
+    const i = tx.instructions.findIndex((ix) => ix.programId.toBase58() === 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+    tx.instructions.splice(i, 0, tx.instructions[i]);
+    assert.strictEqual(ok(reserialize(tx)).ok, false);
+  });
+}
 
 console.log(`\n${passed} checks passed`);
 if (process.exitCode) console.error('SOME CHECKS FAILED');

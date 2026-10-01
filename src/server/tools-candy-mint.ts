@@ -26,6 +26,8 @@
  *      also gets `used`/`remaining` filled in against that specific wallet)
  *   POST /api/tools/candy-mint/build-tx   { family, candyMachine, candyGuard, collection, collectionUpdateAuthority?, group, wallet }
  *   POST /api/tools/candy-mint/simulate-tx { transactionBase64, wallet }
+ *   POST /api/tools/candy-mint/cosign { transactionBase64, lastValidBlockHeight }
+ *      thirdPartySigner drops: wallet-signed tx -> project cosigner (cosigned.ts)
  *   GET  /api/tools/candy-mint/block-height  -> { blockHeight }
  *      Batch-mint post-sign blockhash-headroom guard only (see page.tsx
  *      handleMintBatch) — one call per batch, not per item.
@@ -35,7 +37,8 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { PublicKey } from '@solana/web3.js';
+import { PublicKey, Transaction } from '@solana/web3.js';
+import { COSIGNER_ADAPTERS, requestCosign } from '../candy-mint/cosigned';
 import { rateLimit } from './rate-limit';
 import { requireAuth } from './runtime';
 import { rpcPost } from './tools-mmm-pools';
@@ -243,6 +246,30 @@ export function createCandyMintRouter(): Router {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[tools/candy-mint] simulate-tx error', msg);
+      return res.status(200).json({ ok: false, error: msg });
+    }
+  });
+
+  // thirdPartySigner drops (cosigned.ts): forward the WALLET-SIGNED tx to the
+  // project's own signing endpoint and hand back the cosigned bytes. Only the
+  // known adapter's cosigner, only an unchanged message comes back.
+  router.post('/tools/candy-mint/cosign', sendLimit, requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { transactionBase64, lastValidBlockHeight } = req.body as { transactionBase64?: string; lastValidBlockHeight?: number };
+      if (typeof transactionBase64 !== 'string' || !transactionBase64 || !Number.isSafeInteger(lastValidBlockHeight)) {
+        return res.status(400).json({ ok: false, error: 'missing_or_invalid_fields' });
+      }
+      const tx = Transaction.from(Buffer.from(transactionBase64, 'base64'));
+      const msg = tx.compileMessage();
+      const signers = msg.accountKeys.slice(0, msg.header.numRequiredSignatures).map((k) => k.toBase58());
+      const adapter = signers.map((k) => COSIGNER_ADAPTERS[k]).find(Boolean);
+      if (!adapter) return res.status(400).json({ ok: false, error: 'no_known_cosigner_in_tx' });
+      const result = await requestCosign(adapter, transactionBase64, lastValidBlockHeight as number);
+      if (!result.ok) console.warn('[tools/candy-mint] cosign refused', adapter.id, result.error);
+      return res.status(200).json(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[tools/candy-mint] cosign error', msg);
       return res.status(200).json({ ok: false, error: msg });
     }
   });

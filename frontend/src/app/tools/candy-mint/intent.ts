@@ -58,7 +58,30 @@ export interface FrozenMintIntent {
   payment: PaymentAuthorization;
 
   enabledGuards: string[];               // reviewed guard names (informational + audit sanity)
+
+  // thirdPartySigner key of a known project cosigner (KNOWN_COSIGNERS), or
+  // null. Burn/CU expectations are pinned from the local table, never from
+  // the backend.
+  cosigner: string | null;
 }
+
+// Mirror of the backend's COSIGNER_ADAPTERS (src/candy-mint/cosigned.ts) —
+// what the auditor expects in a cosigned tx. Kept local on purpose: the
+// auditor must not take burn amounts from the backend it is auditing.
+export interface KnownCosigner {
+  id: string;
+  computeUnitLimit: number;
+  maxComputeUnitPrice: number;
+  burn: { mint: string; amount: bigint; decimals: number } | null;
+}
+export const KNOWN_COSIGNERS: Record<string, KnownCosigner> = {
+  DaprcA3JKHFeoMN1PdXGgDTtU6YHNeiNz51kWJQ3NZqX: {
+    id: 'printerotc',
+    computeUnitLimit: 800_000,
+    maxComputeUnitPrice: 250_000,
+    burn: { mint: '3e6to4qrHByU19Sij9DVKPB4AQD5RuyhH2Sj2ESLpump', amount: BigInt('100000000000'), decimals: 6 },
+  },
+};
 
 export function emptyPayment(): PaymentAuthorization {
   return {
@@ -86,6 +109,7 @@ export function freezeMintIntent(input: {
     label: string | null;
     payment: PaymentAuthorization;
     enabledGuards: string[];
+    cosigner?: string | null;
   } | null;
 }): FrozenMintIntent | null {
   if (!input.wallet || !input.collection || input.group === undefined || !input.selectedGroup) return null;
@@ -101,6 +125,7 @@ export function freezeMintIntent(input: {
     quantity: Math.max(1, Math.floor(input.quantity)),
     payment: g.payment ?? emptyPayment(),
     enabledGuards: g.enabledGuards ?? [],
+    cosigner: g.cosigner && KNOWN_COSIGNERS[g.cosigner] ? g.cosigner : null,
   };
 }
 

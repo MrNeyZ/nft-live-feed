@@ -43,6 +43,7 @@ import { fetchMetadata, findMetadataPda } from '@metaplex-foundation/mpl-token-m
 import { inspectCandyMachine, extractPaymentGuards, canonicalGuardNames, type PaymentGuardConfig } from './guard-config';
 import { mergeGuardSets } from './guard-merge';
 import type { CandyMintFamily } from './decode';
+import { adapterFor, buildCosignedTx } from './cosigned';
 
 // Every guard's *MintArgs type is `Omit<FullArgs, 'lamports' | 'amount' |
 // 'limit'>` — i.e. always a strict subset of the guard's own on-chain
@@ -124,6 +125,9 @@ export type BuildCandyMintResult =
        *  botTax, or a same-count swap like mintLimit↔allocation) that the
        *  account-count check alone cannot see. */
       resolvedEnabledGuards: string[];
+      /** thirdPartySigner key when the tx still needs the project cosigner's
+       *  signature (POST /cosign after the wallet signs). */
+      cosigner?: string;
     }
   | { ok: false; error: string };
 
@@ -145,6 +149,34 @@ async function buildCore(input: BuildCandyMintInput): Promise<BuildCandyMintResu
   if (!candyGuard) return { ok: false, error: 'candy_guard_not_found' };
 
   const mergedGuards = activeGuardSet(candyGuard, input.group);
+
+  // thirdPartySigner drop with a known project cosigner: build the exact tx
+  // shape their signing endpoint accepts (cosigned.ts). The cosigner's
+  // signature is added after the wallet signs, via /cosign.
+  const adapter = adapterFor(mergedGuards, input.candyMachine);
+  if (adapter) {
+    const pay = extractPaymentGuards(mergedGuards as Record<string, { __option: 'Some' | 'None'; value?: unknown }>);
+    const lamports = pay.solPaymentLamports != null ? BigInt(pay.solPaymentLamports) : 0n;
+    const built = await buildCosignedTx({
+      adapter,
+      rpcUrl: rpcUrl(),
+      wallet: input.wallet,
+      group: input.group,
+      solPaymentDestination: lamports > 0n ? pay.solPaymentDestination : null,
+      microLamports: 50_000,
+    });
+    return {
+      ok: true,
+      ...built,
+      feePayer: input.wallet,
+      requiresSignatureFrom: input.wallet,
+      group: input.group,
+      cosigner: adapter.signerKey,
+      resolvedGuardPayment: pay,
+      resolvedEnabledGuards: canonicalGuardNames(mergedGuards as Record<string, { __option: 'Some' | 'None'; value?: unknown }>),
+    };
+  }
+
   const builder = mintV1(umi, {
     candyMachine: candyMachine.publicKey,
     candyGuard: candyGuard.publicKey,

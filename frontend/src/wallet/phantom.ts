@@ -257,7 +257,14 @@ export async function signAllAndSend(
   txBase64List: string[],
   onSubmitted?: (index: number, signature: string) => void,
   shouldSend?: (index: number) => Promise<boolean> | boolean,
-  opts: { sendPath?: string; expectWallet?: string } = {},
+  opts: {
+    sendPath?: string;
+    expectWallet?: string;
+    /** Third-party cosigned txs: receives the wallet-signed tx (base64) and
+     *  returns the fully-signed one. Throwing skips nothing silently — it
+     *  aborts the remaining sends. */
+    cosign?: (index: number, walletSignedBase64: string) => Promise<string>;
+  } = {},
 ): Promise<string[]> {
   const sol = getPhantom();
   if (!sol) throw new Error('Phantom wallet not connected.');
@@ -276,7 +283,13 @@ export async function signAllAndSend(
       console.log(TAG, `signAllAndSend: skipping item ${i} — shouldSend declined (not broadcasting)`);
       continue;
     }
-    const serialized = (signed[i] as Transaction).serialize();
+    let serialized: Buffer;
+    if (opts.cosign) {
+      const walletSigned = (signed[i] as Transaction).serialize({ requireAllSignatures: false }).toString('base64');
+      serialized = Transaction.from(Buffer.from(await opts.cosign(i, walletSigned), 'base64')).serialize();
+    } else {
+      serialized = (signed[i] as Transaction).serialize();
+    }
     const signature = await backendSendRaw(serialized, opts.sendPath);
     signatures.push(signature);
     onSubmitted?.(i, signature);
