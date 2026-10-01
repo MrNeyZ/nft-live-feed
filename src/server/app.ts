@@ -23,6 +23,7 @@ import { createRuntimeRouter } from './runtime';
 import { createRetardioOffersRouter } from './tools-retardio-offers';
 import { createRareFeedRouter } from './tools-rare-feed';
 import { createMintAnalyzerRouter } from './tools-mint-analyzer';
+import { createRpcUsageRouter } from './tools-rpc-usage';
 import { createMeCollectionRefreshRouter } from './tools-me-collection-refresh';
 import { createTrendingCollectionsRouter } from './tools-trending-collections';
 import { createSnsRouter } from './tools-sns';
@@ -175,6 +176,7 @@ export function createApp() {
   // Mint Analyzer tool — read-only tx decoder + mint verdict.
   // GET /api/tools/mint-analyzer/analyze?sig=<signature>
   app.use('/api', createMintAnalyzerRouter());
+  app.use('/api', createRpcUsageRouter());
 
   // ME Collection Refresh tool — batches ME's own per-NFT re-sync call
   // across every mint in a collection. See tools-me-collection-refresh.ts.

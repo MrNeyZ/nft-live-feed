@@ -10,6 +10,8 @@
  * Zero behavior changes: pure counter increments, no delays, no caches, no retries.
  */
 
+import { noteRpcSource } from './runtime/rpc-usage-daily';
+
 export type GetAssetSource =
   | 'collection_confirm'
   | 'mint_enricher_verify'
@@ -138,19 +140,23 @@ const getAssetsByOwnerDay: Record<GetAssetsByOwnerSource, number> = Object.fromE
 
 export function incGetAsset(source: GetAssetSource): void {
   getAssetCounts[source]++;
+  noteRpcSource(`getAsset.${source}`);
 }
 
 export function incSearchAssets(source: SearchAssetsSource): void {
   searchAssetsCounts[source]++;
+  noteRpcSource(`searchAssets.${source}`);
 }
 
 /** Call once per page fetched (each page = one Helius getAssetsByOwner HTTP request). */
 export function incGetAssetsByOwner(source: GetAssetsByOwnerSource): void {
   getAssetsByOwnerCounts[source]++;
+  noteRpcSource(`getAssetsByOwner.${source}`);
 }
 
 export function incGetTx(source: GetTxSource): void {
   getTxCounts[source]++;
+  noteRpcSource(`getTx.${source}`);
 }
 
 export function incNullGetTx(source: GetTxSource): void {

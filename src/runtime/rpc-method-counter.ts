@@ -15,6 +15,8 @@ const http = require('http') as typeof httpT;
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const https = require('https') as typeof import('https');
 
+import { noteRpcMethod } from './rpc-usage-daily';
+
 const LOG_MS = 5 * 60_000;
 const counts = new Map<string, number>();
 
@@ -27,12 +29,13 @@ function countBody(body: unknown): void {
   if (typeof body === 'string') text = body;
   else if (Buffer.isBuffer(body)) text = body.toString('utf8');
   else if (body instanceof Uint8Array) text = Buffer.from(body).toString('utf8');
-  else { counts.set('(stream)', (counts.get('(stream)') ?? 0) + 1); return; }
+  else { counts.set('(stream)', (counts.get('(stream)') ?? 0) + 1); noteRpcMethod('(stream)'); return; }
   try {
     const parsed = JSON.parse(text) as { method?: string } | Array<{ method?: string }>;
     for (const c of Array.isArray(parsed) ? parsed : [parsed]) {
       const m = c?.method ?? '(none)';
       counts.set(m, (counts.get(m) ?? 0) + 1);
+      noteRpcMethod(m);
     }
   } catch {
     counts.set('(non-json)', (counts.get('(non-json)') ?? 0) + 1);

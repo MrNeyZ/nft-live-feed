@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import { installRpcMethodCounter } from './runtime/rpc-method-counter';
+import { installRpcUsageDaily } from './runtime/rpc-usage-daily';
+installRpcUsageDaily('nft-backend');
 installRpcMethodCounter();
 import * as path from 'path';
 import { createApp } from './server/app';

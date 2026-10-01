@@ -17,12 +17,14 @@
  */
 
 import { getMode } from '../runtime/mode';
+import { noteRpcSource } from '../runtime/rpc-usage-daily';
 
 const counts = new Map<string, number>();
 
 export type SigListSource = 'listener' | 'amm' | 'seed' | 'reconnect';
 
 export function noteSigList(source: SigListSource, target: string): void {
+  noteRpcSource(`sigList.${source}:${target}`);
   const key = `${source}:${target}`;
   counts.set(key, (counts.get(key) ?? 0) + 1);
 }
