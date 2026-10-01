@@ -9,7 +9,8 @@
  * Stream: Helius `transactionSubscribe` at `processed`, filtered to the COLLECTION account
  * (every Core list tx carries it), decoded with the feed's listing decoder.
  * Tensor: own `buy_core` tx (maxAmount enforced on-chain) + Helius tip -> Sender + RPC.
- * ME: `instructions/buy_now` (ME-built) -> RPC.
+ * ME: own `BuyV2 + CoreExecuteSaleV2` built from the `core_sell` ix (zero RPC, single signer —
+ *     M2 needs no ME cosign for a listing buy) + Helius tip -> Sender + RPC; `buy_now` API fallback.
  *
  * LOG-ONLY by default: builds + simulates, logs latency, then records who actually bought
  * and how many slots after the listing. Real sends only with SNIPER_LIVE=true.
@@ -71,11 +72,27 @@ const TCOMP = new PublicKey('TCMPhJdwDryooaGtiocG1u3xcYbRpiJzb283XfCZsDp');
 const FEE_PROGRAM = new PublicKey('TFEEgwDP6nn1s8mMX2tTNPPz8j2VomkphLUmyxKm17A');
 const MPL_CORE = new PublicKey('CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d');
 const BUY_CORE_DISC = crypto.createHash('sha256').update('global:buy_core').digest().subarray(0, 8);
+// ME M2 (Core listings). Constants + PDA seeds verified against a winning buy (3Y2Kiofy…, #60).
+const M2 = new PublicKey('M2mx93ekt1fmXSVkTrUL9xVFHkmME8HTUi5Cyc5aF7K');
+const ME_AH = new PublicKey('E8cU1WiRWjanGxmn96ewBgk9vPTcL6AEZ1t6F6fkgUWe');
+const ME_AH_AUTHORITY = new PublicKey('autMW8SgBkVYeBgqYiTuJZnkvDZMVU2MHJh9Jh7CSQ2'); // also buyerReferral
+const ME_NOTARY = new PublicKey('NTYeYJ1wr4bpM5xo6zx5En44SvJFAd35zTxxNoERYqd');
+const ME_PROGRAM_AS_SIGNER = new PublicKey('1BWutmTvYPwDtmw9abTkS4Ssr8no61spGAvW1X6NDix');
+const TOKEN_METADATA = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
+const TOKEN_PROGRAM = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+const anchorDisc = (n: string) => crypto.createHash('sha256').update(`global:${n}`).digest().subarray(0, 8);
+const BUY_V2_DISC = anchorDisc('buy_v2');
+const CORE_EXEC_V2_DISC = anchorDisc('core_execute_sale_v2');
+const ME_TAKER_FEE_BP = 200n; // AH taker fee (log: taker_fee = 2% of price)
+const ME_CU_LIMIT = Number(process.env.SNIPER_ME_CU_LIMIT ?? 160_000);
 const conn = new Connection(RPC, 'processed');
 const COLLECTION_PK = new PublicKey(COLLECTION);
 const CU_LIMIT_IX = ComputeBudgetProgram.setComputeUnitLimit({ units: 80_000 });
 const CU_PRICE_IX = ComputeBudgetProgram.setComputeUnitPrice({ microLamports: PRIO_MICROLAMPORTS });
 const TIP_ACCOUNTS_PK = HELIUS_TIP_ACCOUNTS.map((a) => new PublicKey(a));
+// Same total priority spend as the Tensor path (PRIO x 80k CU) spread over ME's larger CU limit.
+const ME_CU_LIMIT_IX = ComputeBudgetProgram.setComputeUnitLimit({ units: ME_CU_LIMIT });
+const ME_CU_PRICE_IX = ComputeBudgetProgram.setComputeUnitPrice({ microLamports: Math.floor((PRIO_MICROLAMPORTS * 80_000) / ME_CU_LIMIT) });
 
 const log = (o: Record<string, unknown>): void => {
   const line = JSON.stringify({ ts: new Date().toISOString(), ...o });
@@ -95,7 +112,8 @@ function loadBuyer(): Keypair {
 const buyer = loadBuyer();
 
 // ── targets: mint -> category ───────────────────────────────────────────────────────────────
-let targets = new Map<string, { category: Category; name: string; listState: PublicKey; feeVault: PublicKey }>();
+type Target = { category: Category; name: string; listState: PublicKey; feeVault: PublicKey; meMetadata: PublicKey; meBts: PublicKey };
+let targets = new Map<string, Target>();
 /** json_uri attrs we had to read ourselves (DAS blank) — cached so a refresh doesn't refetch ~175 files. */
 const jsonAttrCache = new Map<string, Record<string, string>>();
 let royalty = { creators: [] as PublicKey[], bps: 0 };
@@ -120,7 +138,7 @@ function categorize(attrs: Record<string, string>): Category | null {
 }
 
 async function refreshTargets(): Promise<void> {
-  const next = new Map<string, { category: Category; name: string; listState: PublicKey; feeVault: PublicKey }>();
+  const next = new Map<string, Target>();
   let blank = 0;
   for (let page = 1; page < 10; page += 1) {
     const r = await rpc<{ items: any[] }>('getAssetsByGroup', { groupKey: 'collection', groupValue: COLLECTION, page, limit: 1000 });
@@ -141,7 +159,10 @@ async function refreshTargets(): Promise<void> {
         // PDAs precomputed so the hot path does no derivation.
         const [listState] = PublicKey.findProgramAddressSync([Buffer.from('list_state'), new PublicKey(it.id).toBuffer()], TCOMP);
         const [feeVault] = PublicKey.findProgramAddressSync([Buffer.from('fee_vault'), Buffer.from([listState.toBytes()[31]])], FEE_PROGRAM);
-        next.set(it.id, { category: c, name: String(it.content?.metadata?.name ?? '').trim() || it.id.slice(0, 8), listState, feeVault });
+        const assetPk = new PublicKey(it.id);
+        const [meMetadata] = PublicKey.findProgramAddressSync([Buffer.from('metadata'), TOKEN_METADATA.toBuffer(), assetPk.toBuffer()], TOKEN_METADATA);
+        const [meBts] = PublicKey.findProgramAddressSync([Buffer.from('m2'), buyer.publicKey.toBuffer(), ME_AH.toBuffer(), assetPk.toBuffer()], M2);
+        next.set(it.id, { category: c, name: String(it.content?.metadata?.name ?? '').trim() || it.id.slice(0, 8), listState, feeVault, meMetadata, meBts });
       }
     }
     if (r.items.length < 1000) break;
@@ -302,7 +323,70 @@ function buildTensorBuyFromListIx(accounts: string[], data: Uint8Array, maxPrice
   return { tx, price: amount, seller: owner.toBase58() };
 }
 
-// ── ME buy_now ─────────────────────────────────────────────────────────────────────────────
+// ── ME FAST path: BuyV2 + CoreExecuteSaleV2 from the core_sell ix, zero RPC ────────────
+// core_sell accounts (m2 idl): 0 payer, 1 wallet(seller), 2 notary, 3 programAsSigner, 4 asset,
+// 5 auctionHouse, 6 sellerTradeState, 7 sellerReferral, 8 assetProgram, 9 paymentMint, 10 system, 11 collection
+// args: price u64, expiry i64, compressionProof Option<bytes>
+const [ME_ESCROW] = PublicKey.findProgramAddressSync([Buffer.from('m2'), ME_AH.toBuffer(), buyer.publicKey.toBuffer()], M2);
+const [ME_TREASURY] = PublicKey.findProgramAddressSync([Buffer.from('m2'), ME_AH.toBuffer(), Buffer.from('treasury')], M2);
+
+function buildMeBuyFromCoreSellIx(accounts: string[], data: Uint8Array, maxPrice: bigint):
+  { tx: VersionedTransaction; price: bigint } | { skip: string } {
+  const d = Buffer.from(data);
+  const price = d.readBigUInt64LE(8);
+  if (price > maxPrice) return { skip: `price_${Number(price) / 1e9}_above_max` };
+  if (accounts[5] !== ME_AH.toBase58()) return { skip: 'me_unknown_auction_house' };
+  if (accounts[11] !== COLLECTION) return { skip: 'me_collection_mismatch' };
+  const asset = new PublicKey(accounts[4]!);
+  const t = targets.get(accounts[4]!);
+  if (!t) return { skip: 'me_not_target' };
+  const seller = new PublicKey(accounts[1]!);
+  const sts = new PublicKey(accounts[6]!);
+  const sellerReferral = new PublicKey(accounts[7]!);
+  const ro = (pubkey: PublicKey) => ({ pubkey, isSigner: false, isWritable: false });
+  const w = (pubkey: PublicKey) => ({ pubkey, isSigner: false, isWritable: true });
+
+  // BuyV2: buyerPrice, tokenSize=1, buyerStateExpiry=0, buyerCreatorRoyaltyBp=0, extraArgs=empty
+  const buyData = Buffer.alloc(8 + 8 + 8 + 8 + 2 + 4);
+  BUY_V2_DISC.copy(buyData, 0);
+  buyData.writeBigUInt64LE(price, 8);
+  buyData.writeBigUInt64LE(1n, 16);
+  const buyIx = new TransactionInstruction({ programId: M2, data: buyData, keys: [
+    { pubkey: buyer.publicKey, isSigner: true, isWritable: true },
+    ro(ME_NOTARY), ro(asset), ro(t.meMetadata), w(ME_ESCROW), ro(ME_AH_AUTHORITY), ro(ME_AH),
+    w(t.meBts), ro(ME_AH_AUTHORITY), ro(MPL_CORE), ro(SystemProgram.programId),
+  ] });
+  // CoreExecuteSaleV2: price, makerFeeBp=0, takerFeeBp=0 (AH config applies), compressionProof=None
+  const execData = Buffer.alloc(8 + 8 + 2 + 2 + 1);
+  CORE_EXEC_V2_DISC.copy(execData, 0);
+  execData.writeBigUInt64LE(price, 8);
+  const execIx = new TransactionInstruction({ programId: M2, data: execData, keys: [
+    { pubkey: buyer.publicKey, isSigner: true, isWritable: true },
+    w(buyer.publicKey), w(seller), ro(ME_NOTARY), ro(ME_PROGRAM_AS_SIGNER), w(asset), ro(ME_AH),
+    w(ME_TREASURY), w(sts), w(t.meBts), w(ME_ESCROW), ro(ME_AH_AUTHORITY), ro(sellerReferral),
+    ro(MPL_CORE), ro(SystemProgram.programId), ro(COLLECTION_PK),
+    // SOL payment: paymentMint + 3 payment token accounts = system program, paymentTokenProgram = Token
+    ro(SystemProgram.programId), ro(SystemProgram.programId), ro(SystemProgram.programId), ro(SystemProgram.programId),
+    ro(TOKEN_PROGRAM),
+    ...royalty.creators.map(w),
+  ] });
+  const tx = new VersionedTransaction(new TransactionMessage({
+    payerKey: buyer.publicKey, recentBlockhash: blockhash,
+    instructions: [ME_CU_LIMIT_IX, ME_CU_PRICE_IX, buyIx,
+      // BuyV2 only escrows `price`; CoreExecuteSaleV2 also pulls taker fee + royalty from the escrow.
+      SystemProgram.transfer({ fromPubkey: buyer.publicKey, toPubkey: ME_ESCROW,
+        lamports: (price * (ME_TAKER_FEE_BP + BigInt(royalty.bps)) + 9_999n) / 10_000n }),
+      execIx, SystemProgram.transfer({
+      fromPubkey: buyer.publicKey,
+      toPubkey: TIP_ACCOUNTS_PK[Math.floor(Math.random() * TIP_ACCOUNTS_PK.length)]!,
+      lamports: TIP_LAMPORTS,
+    })],
+  }).compileToV0Message());
+  tx.sign([buyer]);
+  return { tx, price };
+}
+
+// ── ME buy_now (fallback: non-core_sell list ix) ─────────────────────────────────────────────────────────────────────────────
 async function buildMeBuy(a: ListingAction): Promise<{ tx: VersionedTransaction; price: bigint } | { skip: string }> {
   if (!a.auctionHouse || !a.tokenAccount || a.priceLamports == null) return { skip: 'me_listing_fields_missing' };
   const u = new URL('https://api-mainnet.magiceden.dev/v2/instructions/buy_now');
@@ -376,9 +460,13 @@ async function onListing(a: ListingAction, slot: number, sig: string, recvAt: nu
   if (spentLamports + BigInt(a.priceLamports) > BigInt(Math.round(MAX_SPEND_SOL * 1e9))) {
     log({ event: 'skip_budget', mint: a.mint, priceSol, spentSol: Number(spentLamports) / 1e9 }); return;
   }
-  const fast = a.marketplace === 'TENSOR' && a.ix === 'list_core' && raw !== null;
-  const built = fast
+  const fastTensor = a.marketplace === 'TENSOR' && a.ix === 'list_core' && raw !== null;
+  const fastMe = a.marketplace === 'ME' && a.ix === 'core_sell' && raw !== null;
+  const fast = fastTensor || fastMe;
+  const built = fastTensor
     ? buildTensorBuyFromListIx(raw!.accounts, raw!.data, BigInt(max))
+    : fastMe
+      ? buildMeBuyFromCoreSellIx(raw!.accounts, raw!.data, BigInt(max))
     : a.marketplace === 'TENSOR'
       ? await buildTensorBuy(new PublicKey(a.mint), BigInt(max))
       : await buildMeBuy(a);
@@ -387,15 +475,18 @@ async function onListing(a: ListingAction, slot: number, sig: string, recvAt: nu
   const currentSlot = tipSlot; // local, no RPC on the hot path
   if (!LIVE) {
     const sim = await conn.simulateTransaction(built.tx, { sigVerify: false, replaceRecentBlockhash: true, commitment: 'processed' }).catch((e) => ({ value: { err: String(e), logs: [] as string[] } }));
-    log({ event: 'WOULD_BUY', mp: a.marketplace, path: fast ? 'fast' : 'rpc', lagAtRecv, mint: a.mint, name: t.name, category: t.category, priceSol,
+    log({ event: 'WOULD_BUY', mp: a.marketplace, path: fast ? 'fast' : 'sender', lagAtRecv, mint: a.mint, name: t.name, category: t.category, priceSol,
       listSlot: slot, slotAtDecision: currentSlot, slotsBehind: currentSlot - slot, buildMs,
       sim: sim.value.err ? `err ${JSON.stringify(sim.value.err)}` : 'ok' });
     void followUp(a.mint, slot, sig);
     return;
   }
   spentLamports += built.price;
-  const buySig = await send(built.tx, a.marketplace === 'TENSOR');
-  log({ event: 'BUY_SENT', mp: a.marketplace, path: fast ? 'fast' : 'rpc', mint: a.mint, name: t.name, category: t.category, priceSol, listSlot: slot, lagAtRecv, slotAtSend: currentSlot, buildMs, buySig });
+  // Always fan out through Helius Sender (fra/ams/lon/ewr), not just for Tensor. ME buys
+  // carry a priority fee from the buy_now API but were previously sent via a single plain
+  // RPC POST, landing 1-2 slots later than the Sender lane used for the mint.
+  const buySig = await send(built.tx, true);
+  log({ event: 'BUY_SENT', mp: a.marketplace, path: fast ? 'fast' : 'sender', mint: a.mint, name: t.name, category: t.category, priceSol, listSlot: slot, lagAtRecv, slotAtSend: currentSlot, buildMs, buySig });
   void followUp(a.mint, slot, sig);
 }
 
@@ -451,7 +542,35 @@ function startStream(): void {
   ws.on('error', (e) => log({ event: 'ws_error', error: e.message }));
 }
 
+/** SNIPER_SELFTEST_SIG=<ME core_sell tx sig>: build the local ME buy from that listing and simulate. Never sends. */
+async function selftest(sig: string): Promise<void> {
+  await Promise.all([loadRoyalty(), refreshBlockhash()]);
+  const t = await rpc<any>('getTransaction', [sig, { encoding: 'base64', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }]);
+  const tx = VersionedTransaction.deserialize(Buffer.from(t.transaction[0], 'base64'));
+  const keys = [...tx.message.staticAccountKeys.map((k) => k.toBase58()), ...(t.meta.loadedAddresses?.writable ?? []), ...(t.meta.loadedAddresses?.readonly ?? [])];
+  for (const ix of tx.message.compiledInstructions) {
+    const accounts = ix.accountKeyIndexes.map((i) => keys[i]!);
+    const a = decodeIx(keys[ix.programIdIndex]!, accounts, ix.data);
+    if (!a || a.ix !== 'core_sell') continue;
+    const assetPk = new PublicKey(accounts[4]!);
+    targets.set(accounts[4]!, { category: 'niqab', name: 'selftest', listState: PublicKey.default, feeVault: PublicKey.default,
+      meMetadata: PublicKey.findProgramAddressSync([Buffer.from('metadata'), TOKEN_METADATA.toBuffer(), assetPk.toBuffer()], TOKEN_METADATA)[0],
+      meBts: PublicKey.findProgramAddressSync([Buffer.from('m2'), buyer.publicKey.toBuffer(), ME_AH.toBuffer(), assetPk.toBuffer()], M2)[0] });
+    const t0 = performance.now();
+    const built = buildMeBuyFromCoreSellIx(accounts, ix.data, 10n ** 12n);
+    const buildMs = performance.now() - t0;
+    if ('skip' in built) { console.log('skip', built.skip); return; }
+    const sim = await conn.simulateTransaction(built.tx, { sigVerify: false, replaceRecentBlockhash: true, commitment: 'processed' });
+    console.log(JSON.stringify({ asset: accounts[4], priceSol: Number(built.price) / 1e9, buildMs: +buildMs.toFixed(2), size: built.tx.serialize().length,
+      err: sim.value.err, cu: sim.value.unitsConsumed }));
+    console.log((sim.value.logs ?? []).filter((l) => !l.includes('consumed')).join('\n'));
+    return;
+  }
+  console.log('no core_sell ix in', sig);
+}
+
 async function main(): Promise<void> {
+  if (process.env.SNIPER_SELFTEST_SIG) { await selftest(process.env.SNIPER_SELFTEST_SIG); process.exit(0); }
   log({ event: 'start', live: LIVE, buyer: buyer.publicKey.toBase58(), maxSpendSol: MAX_SPEND_SOL,
     prioSolPerTx: (PRIO_MICROLAMPORTS * 80_000) / 1e15, tipSol: TIP_LAMPORTS / 1e9, rules: MAX_PRICE_LAMPORTS });
   await Promise.all([refreshTargets(), loadRoyalty(), refreshBlockhash()]);
