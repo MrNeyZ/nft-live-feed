@@ -5,7 +5,7 @@ import { fetchFallbackMetadata } from './fallback-metadata';
 import { TtlCache } from './cache';
 import { SLUG_BLACKLIST } from '../db/blacklist';
 import { getDerivedFloorLamports, slugForMint, nameForMint } from '../server/listings-store';
-import { getMeStats } from './me-stats';
+import { getMeStats, meStatsCooldownActive } from './me-stats';
 import { getPool } from '../db/client';
 import { meCooldownActive } from '../me-api-cooldown';
 import { getMeTokenData, MeTokenData } from './me-token-cache';
@@ -303,7 +303,7 @@ export async function warmFloorCache(slug: string | null | undefined): Promise<v
       // Only record a genuine miss. When ME cooldown was active the null is a
       // rate-limit artefact, not a "no floor" signal — caching it blocks the
       // next retry for 90 s even after the cooldown lifts.
-      if (!meCooldownActive()) {
+      if (!meCooldownActive() && !meStatsCooldownActive()) {
         floorMissCache.set(slug, true);
         console.log(`[floor-miss] collection=${slug} source=ME/Tensor`);
       }

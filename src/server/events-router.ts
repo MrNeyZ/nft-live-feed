@@ -216,7 +216,9 @@ export function createEventsRouter(): Router {
       // response and self-heals on the next request (cache now warming in
       // the background) or arrives live via the next `sale` SSE event for
       // that collection (which carries its own floorDelta independently).
-      void warmSnapshotFloors(rows);
+      // Snapshot pre-warm disabled (2026-09-30): it queued up to 20 cold slugs
+      // per /latest load into the serial ME stats chain, pushing live sales'
+      // floor lookups past their 4s cap. Sales warm their own slug instead.
       const enriched = await stampRarity(stampFromCache(rows));
       res.json({ events: enriched, count: enriched.length });
     } catch (err) {

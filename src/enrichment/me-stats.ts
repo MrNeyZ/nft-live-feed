@@ -30,8 +30,21 @@
 //      silently killing floor-delta for everyone for a full minute.
 let cooldownUntil = 0;
 
-const ME_STATS_TTL_MS = 12_000;
-const ME_STATS_TIMEOUT_MS = 4_000;
+// 2 min, same as enrich.ts FLOOR_TTL_MS — the 12s TTL re-hit ME for every
+// visible slug several times a minute and fed the soft rate limit below.
+const ME_STATS_TTL_MS = 120_000;
+// ME's keyless limiter (Sep 2026) does not 429 — it stops answering and the
+// request hangs. Normal answers take 0.5-2.2s, so 3s still fits inside the
+// 4s wait a live sale gives its floor, while a hung call cannot stall the whole
+// serial chain; a timeout then trips the same cooldown as a 429.
+const ME_STATS_TIMEOUT_MS = 3_000;
+const ME_STATS_COOLDOWN_MS = 30_000;
+
+/** True while getMeStats is backing off (429 or hang). Callers must not treat
+ *  a null returned during this window as "collection has no floor". */
+export function meStatsCooldownActive(): boolean {
+  return Date.now() < cooldownUntil;
+}
 
 // ── Rate gate ────────────────────────────────────────────────────────────────
 // This endpoint had no proactive throttle at all — unlike Tensor (tensorFetch,
@@ -81,52 +94,88 @@ export interface MeStatsRaw {
 interface CacheEntry { stats: MeStatsRaw | null; fetchedAt: number }
 
 const cache    = new Map<string, CacheEntry>();
+
+// Per-minute outcome counters — every non-OK path used to be silent except
+// 429 / thrown errors, which made "floor chip missing" undiagnosable.
+const stats = { calls: 0, cacheHit: 0, cooldownSkip: 0, ok: 0, okNoFloor: 0, s429: 0, sOther: 0, err: 0, maxWaitMs: 0, maxFetchMs: 0 };
+const otherStatuses = new Map<number, number>();
+setInterval(() => {
+  if (stats.calls === 0) return;
+  const other = [...otherStatuses].map(([k, v]) => `${k}x${v}`).join(',');
+  console.log(`[me-stats/summary] ${Object.entries(stats).map(([k, v]) => `${k}=${v}`).join(' ')}${other ? ` statuses=${other}` : ''}`);
+  for (const k of Object.keys(stats) as (keyof typeof stats)[]) stats[k] = 0;
+  otherStatuses.clear();
+}, 60_000).unref();
 const inFlight = new Map<string, Promise<MeStatsRaw | null>>();
 
 export async function getMeStats(slug: string): Promise<MeStatsRaw | null> {
   const now = Date.now();
+  stats.calls++;
   const hit = cache.get(slug);
-  if (hit && now - hit.fetchedAt < ME_STATS_TTL_MS) return hit.stats;
+  if (hit && now - hit.fetchedAt < ME_STATS_TTL_MS) { stats.cacheHit++; return hit.stats; }
 
   // Guard before touching inFlight: a cooldown early-return inside the IIFE
   // (the old shape) left an already-resolved Promise<null> in inFlight because
   // inFlight.set runs after the IIFE and the try/finally never executed, so
   // inFlight.delete was never called. Future callers then hit the stale entry
   // and returned null permanently. Checking here keeps inFlight untouched.
-  if (Date.now() < cooldownUntil) return null;
+  if (Date.now() < cooldownUntil) { stats.cooldownSkip++; return null; }
 
   const pending = inFlight.get(slug);
   if (pending) return pending;
 
+  const enqueuedAt = Date.now();
   const task = scheduleMeStatsCall(async (): Promise<MeStatsRaw | null> => {
+    const startedAt = Date.now();
+    stats.maxWaitMs = Math.max(stats.maxWaitMs, startedAt - enqueuedAt);
+    // Cooldown may have started while this call sat in the queue.
+    if (startedAt < cooldownUntil) {
+      stats.cooldownSkip++;
+      inFlight.delete(slug);
+      return null;
+    }
     try {
       const res = await fetch(
         `https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}/stats`,
         { signal: AbortSignal.timeout(ME_STATS_TIMEOUT_MS) },
       );
       if (res.status === 429) {
-        cooldownUntil = Date.now() + 60_000;
+        cooldownUntil = Date.now() + ME_STATS_COOLDOWN_MS;
         cache.set(slug, { stats: null, fetchedAt: Date.now() });
         // Unlike rare-feed's getJson(), this path used to fail silently —
         // a 429 here (e.g. the concurrent boot-time burst: rarity replay +
         // snapshot floor pre-warm + per-sale enrichment all hitting ME at
         // once) left no trace, making "floor_delta null right after a
         // restart" look inexplicable in the logs.
-        console.warn(`[me-stats] 429 — cooling down 60s slug=${slug}`);
+        stats.s429++;
+        console.warn(`[me-stats] 429 — cooling down 30s slug=${slug}`);
         return null;
       }
       if (!res.ok) {
+        stats.sOther++;
+        otherStatuses.set(res.status, (otherStatuses.get(res.status) ?? 0) + 1);
         cache.set(slug, { stats: null, fetchedAt: Date.now() });
         return null;
       }
       const json = (await res.json()) as MeStatsRaw;
+      stats.ok++;
+      if (!(typeof json.floorPrice === 'number' && json.floorPrice > 0)) stats.okNoFloor++;
       cache.set(slug, { stats: json, fetchedAt: Date.now() });
       return json;
     } catch (err) {
-      console.error(`[me-stats-error] slug=${slug} ${(err as Error)?.message ?? err}`);
+      stats.err++;
+      const timedOut = (err as Error)?.name === 'TimeoutError';
+      if (timedOut) {
+        const wasCooling = Date.now() < cooldownUntil;
+        cooldownUntil = Date.now() + ME_STATS_COOLDOWN_MS;
+        if (!wasCooling) console.warn(`[me-stats] timeout — ME soft rate limit, cooling down 30s slug=${slug}`);
+      } else {
+        console.error(`[me-stats-error] slug=${slug} ${(err as Error)?.message ?? err}`);
+      }
       cache.set(slug, { stats: null, fetchedAt: Date.now() });
       return null;
     } finally {
+      stats.maxFetchMs = Math.max(stats.maxFetchMs, Date.now() - startedAt);
       inFlight.delete(slug);
     }
   });
