@@ -522,7 +522,7 @@ export type BlockhashCheck =
  *  message and invalidate the digest binding. This only ever READS the
  *  current height and compares. */
 export function checkBlockhashFreshness(
-  tx: Transaction, info: BlockhashInfo, currentBlockHeight: number, marginBlocks: number,
+  tx: Pick<Transaction, 'recentBlockhash'>, info: BlockhashInfo, currentBlockHeight: number, marginBlocks: number,
 ): BlockhashCheck {
   if (tx.recentBlockhash !== info.blockhash) {
     return { ok: false, code: 'blockhash_mismatch', detail: `tx recentBlockhash ${String(tx.recentBlockhash)} != cached ${info.blockhash}` };
