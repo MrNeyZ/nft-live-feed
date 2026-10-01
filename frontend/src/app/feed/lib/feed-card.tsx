@@ -714,17 +714,25 @@ export const FeedCard = memo(function FeedCard({
         {/* Middle column */}
         <div style={FC_MIDDLE_COL_STYLE}>
           <div style={FC_NAME_ROW_STYLE}>
-            {/* NFT name now links to the Solscan token page for the
-                mint (was internal /collection/<slug>). Collection-route
-                affordances live elsewhere (thumb click, etc.) and are
-                unchanged. Fallback to <span> only when no mintAddress
-                is available (cNFT placeholder rows). */}
+            {/* NFT name: plain left click → /collection/<slug> (same tab);
+                middle / modifier click keeps the native Solscan token link
+                (href). On the collection's own page there's nowhere to go,
+                so it stays Solscan. Fallback to <span> only when no
+                mintAddress is available (cNFT placeholder rows). */}
             {event.mintAddress ? (
               <a
                 href={`https://solscan.io/token/${encodeURIComponent(event.mintAddress)}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const slug = event.meCollectionSlug;
+                  if (!slug || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                  const collHref = `/collection/${encodeURIComponent(slug)}`;
+                  if (window.location.pathname === collHref) return;
+                  e.preventDefault();
+                  window.location.href = collHref;
+                }}
                 style={FC_NAME_LINK_STYLE}
                 onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
