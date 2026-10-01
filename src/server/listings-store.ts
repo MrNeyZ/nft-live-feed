@@ -28,7 +28,7 @@ import { saleEventBus } from '../events/emitter';
 import { SaleEvent } from '../models/sale-event';
 import { getPool } from '../db/client';
 import { isSlugHot } from './subscribers';
-import { meAuthHeaders } from '../me-api-cooldown';
+import { meAuthHeaders, meCooldownActive } from '../me-api-cooldown';
 import { recordFirstListedAtObservation, type ListingTimeQuality } from '../analytics/mint-lifecycle';
 import { TtlCache } from '../enrichment/cache';
 import { getCatalogEntry } from './collection-catalog';
@@ -622,6 +622,135 @@ interface MeRawListing {
 const ME_PAGE_SIZE = 100;
 const ME_MAX_PAGES = 10;   // hard upper bound = 1000 listings per collection
 
+// ─── Cold-open preview ───────────────────────────────────────────────────────
+// The ~10 cheapest listings so a collection paints its floor at once while
+// the full verified snapshot (on-chain + pools + Tensor, seconds cold) loads
+// behind it. Same ids as the store (`ME:mint:seller`), so the snapshot
+// replaces these rows in place.
+//
+// ME answers the sorted page in 0.3-2.5s, so it's never on the click path
+// when avoidable: served stale-while-revalidate from a disk-persisted cache,
+// and pre-warmed for every collection that trades (~20/h, ~250/day — one ME
+// call per slug per PREVIEW_WARM_EVERY_MS at most).
+const PREVIEW_FRESH_MS      = 30_000;           // older → background refresh
+const PREVIEW_MAX_AGE_MS    = 6 * 3_600_000;    // older → not served at all
+const PREVIEW_WARM_EVERY_MS = 10 * 60_000;
+const PREVIEW_CACHE_MAX     = 2_000;
+const PREVIEW_CACHE_FILE    = path.join(__dirname, '../../data/listing-preview-cache.json');
+const previewCache = new Map<string, { at: number; rows: Listing[] }>();
+const previewInflight = new Map<string, Promise<Listing[]>>();
+(function loadPreviewCache(): void {
+  try {
+    const entries = JSON.parse(fs.readFileSync(PREVIEW_CACHE_FILE, 'utf8')) as Array<[string, { at: number; rows: Listing[] }]>;
+    for (const [k, v] of entries) if (Date.now() - v.at < PREVIEW_MAX_AGE_MS) previewCache.set(k, v);
+  } catch { /* first boot or corrupt file — start empty */ }
+})();
+let previewSaveTimer: ReturnType<typeof setTimeout> | null = null;
+function savePreviewCacheDebounced(): void {
+  if (previewSaveTimer) return;
+  previewSaveTimer = setTimeout(() => {
+    previewSaveTimer = null;
+    fsp.writeFile(PREVIEW_CACHE_FILE, JSON.stringify([...previewCache.entries()]), 'utf8').catch(() => {});
+  }, 5_000);
+}
+function putPreview(slug: string, rows: Listing[]): void {
+  previewCache.delete(slug);
+  if (previewCache.size >= PREVIEW_CACHE_MAX) previewCache.delete(previewCache.keys().next().value!);
+  previewCache.set(slug, { at: Date.now(), rows });
+  savePreviewCacheDebounced();
+}
+
+function fetchPreview(slug: string): Promise<Listing[]> {
+  const live = previewInflight.get(slug);
+  if (live) return live;
+  const p = (async () => {
+    if (meCooldownActive()) return previewCache.get(slug)?.rows ?? [];
+    const url = `https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}/listings`
+      + `?offset=0&limit=20&sort=listPrice&sort_direction=asc`;
+    const res = await fetch(url, { headers: meAuthHeaders(), signal: AbortSignal.timeout(4_000) });
+    if (!res.ok) return previewCache.get(slug)?.rows ?? [];
+    const json = await res.json() as MeRawListing[];
+    const rows = (Array.isArray(json) ? json : [])
+      .filter(l => l.auctionHouse)                                   // AH only; pools come with the snapshot
+      .map(l => meRawToListing(slug, l))
+      .filter((l): l is Listing => l !== null);
+    putPreview(slug, rows);
+    return rows;
+  })().finally(() => previewInflight.delete(slug));
+  previewInflight.set(slug, p);
+  return p;
+}
+
+export async function previewCheapest(slug: string, n = 10): Promise<Listing[]> {
+  const warm = getByCollection(slug);
+  if (warm.length > 0) {
+    const rows = [...warm].sort((a, b) => a.priceSol - b.priceSol).slice(0, 20);
+    putPreview(slug, rows.filter(l => l.source === 'ME' && l.auctionHouse));
+    return rows.slice(0, n);
+  }
+  const hit = previewCache.get(slug);
+  if (hit && Date.now() - hit.at < PREVIEW_MAX_AGE_MS) {
+    if (Date.now() - hit.at > PREVIEW_FRESH_MS) void fetchPreview(slug).catch(() => {});
+    return hit.rows.slice(0, n);
+  }
+  return (await fetchPreview(slug)).slice(0, n);
+}
+
+// Pre-warm: any collection that trades gets its preview refreshed (throttled
+// per slug, one ME call at a time, paused under the shared ME cooldown).
+const previewWarmQueue = new Set<string>();
+let previewWarmTimer: ReturnType<typeof setTimeout> | null = null;
+function queuePreviewWarm(slug: string | null | undefined): void {
+  if (!slug || previewWarmQueue.has(slug)) return;
+  if (getByCollection(slug).length > 0) return;                  // open page keeps it fresh
+  const hit = previewCache.get(slug);
+  if (hit && Date.now() - hit.at < PREVIEW_WARM_EVERY_MS) return;
+  previewWarmQueue.add(slug);
+  previewWarmTimer ??= setTimeout(drainPreviewWarm, 1_500);
+}
+function drainPreviewWarm(): void {
+  previewWarmTimer = null;
+  const slug = previewWarmQueue.values().next().value;
+  if (!slug) return;
+  if (!meCooldownActive()) {
+    previewWarmQueue.delete(slug);
+    void fetchPreview(slug).catch(() => {});
+  }
+  if (previewWarmQueue.size) previewWarmTimer = setTimeout(drainPreviewWarm, meCooldownActive() ? 15_000 : 1_500);
+}
+// Boot: re-warm everything that traded in the last day (~250 slugs, drained
+// at the same 1 per 1.5s pace; fresh disk-cache entries are skipped).
+setTimeout(() => {
+  getPool().query<{ slug: string }>(
+    `SELECT me_collection_slug AS slug FROM sale_events
+      WHERE block_time > now() - interval '24 hours' AND me_collection_slug IS NOT NULL
+      GROUP BY 1 ORDER BY max(block_time) DESC`,
+  ).then(r => { for (const { slug } of r.rows) queuePreviewWarm(slug); }).catch(() => {});
+}, 30_000);
+saleEventBus.onSale(e => queuePreviewWarm(e.meCollectionSlug));
+saleEventBus.onMetaUpdate(u => queuePreviewWarm(u.meCollectionSlug));
+
+function meRawToListing(slug: string, l: MeRawListing): Listing | null {
+  if (!l.tokenMint || !l.seller || !l.tokenAddress) return null;
+  if (typeof l.price !== 'number' || l.price <= 0) return null;
+  return {
+    id:           `ME:${l.tokenMint}:${l.seller}`,
+    mint:         l.tokenMint,
+    priceSol:     l.price,                                      // ME returns SOL already
+    source:       'ME',
+    type:         'listing',
+    seller:       l.seller,
+    slug,
+    auctionHouse: l.auctionHouse ?? '',
+    tokenAta:     l.tokenAddress,
+    rank:         l.rarity?.howrare?.rank ?? l.rarity?.moonrank?.rank ?? null,
+    listedAt:        null,   // filled in after the activities map resolves
+    listedAtQuality: null,
+    nftName:      nonBlankName(l.token?.name),
+    imageUrl:     l.extra?.img ?? l.token?.image ?? null,
+  };
+}
+
 async function fetchMeDirect(slug: string): Promise<Listing[]> {
   const out: Listing[] = [];
   // No /activities here: those were up to 12 sequential ME pages per cold
@@ -646,24 +775,8 @@ async function fetchMeDirect(slug: string): Promise<Listing[]> {
         // accept them. Buy-flow gating elsewhere already treats empty AH as
         // a non-buyable row; this is the same existing pattern MMM-from-pool
         // rows follow.
-        if (!l.tokenMint || !l.seller || !l.tokenAddress) continue;
-        if (typeof l.price !== 'number' || l.price <= 0) continue;
-        out.push({
-          id:           `ME:${l.tokenMint}:${l.seller}`,
-          mint:         l.tokenMint,
-          priceSol:     l.price,                                      // ME returns SOL already
-          source:       'ME',
-          type:         'listing',
-          seller:       l.seller,
-          slug,
-          auctionHouse: l.auctionHouse ?? '',
-          tokenAta:     l.tokenAddress,
-          rank:         l.rarity?.howrare?.rank ?? l.rarity?.moonrank?.rank ?? null,
-          listedAt:        null,   // filled in after the activities map resolves
-          listedAtQuality: null,
-          nftName:      nonBlankName(l.token?.name),
-          imageUrl:     l.extra?.img ?? l.token?.image ?? null,
-        });
+        const row = meRawToListing(slug, l);
+        if (row) out.push(row);
       }
       // Short page → we've reached the end. Spare ME the extra round-trip.
       if (json.length < ME_PAGE_SIZE) break;

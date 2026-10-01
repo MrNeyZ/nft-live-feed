@@ -56,7 +56,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 // exceeded — the first-time snapshot stays intact.
 const MAX_EVENTS          = 5_000;
 const HISTORY_FETCH_LIMIT = 5_000;
-const HISTORY_FIRST_PAGE = 50;
+const HISTORY_FIRST_PAGE = 20;
 // Collection page TRADES panel — display cap applied at render time. The
 // feedReducer still retains the full 7-day history (needed for any future
 // filters); we just don't draw more rows than the user can realistically
@@ -1128,8 +1128,13 @@ export default function CollectionPage() {
     // ME error — handled server-side. The legacy path is also kept available as
     // a dashboard/analytics endpoint; it is no longer the Collection page's
     // canonical source for side / type / naming.
-    const loadHistory = (limit: number = HISTORY_FETCH_LIMIT) => fetch(
-      `${API_BASE}/api/collections/trade-history?slug=${encodeURIComponent(slug)}&days=7&limit=${limit}`,
+    const loadHistory = (limit: number = HISTORY_FETCH_LIMIT, fast = false) => fetch(
+      fast
+        // Our own sale_events (live listener, ~0.1-0.4s) — the ME-merged
+        // window below can take seconds cold. Same row shape, same ids
+        // (signature), so the full window merges in without duplicates.
+        ? `${API_BASE}/api/events/by-collection?slug=${encodeURIComponent(slug)}&limit=${limit}`
+        : `${API_BASE}/api/collections/trade-history?slug=${encodeURIComponent(slug)}&days=7&limit=${limit}`,
     )
       .then(r => r.json())
       .then((data: LatestApiResponse) => {
@@ -1139,10 +1144,9 @@ export default function CollectionPage() {
       })
       .catch(() => { /* SSE may still bring live events */ });
 
-    // Two-stage: a small first page paints the visible rows fast (~0.5s
-    // cold vs ~3s / 2MB for the full 5k window), then the full history
-    // merges in behind it (snapshot is merge-only) for scroll + counters.
-    loadHistory(HISTORY_FIRST_PAGE)
+    // Two-stage: the last few sales from our own DB paint at once, then the
+    // full ME-merged window merges in behind it (snapshot is merge-only).
+    loadHistory(HISTORY_FIRST_PAGE, true)
       .finally(() => {
         if (cancelled) return;
         setLoaded(true);
@@ -1299,6 +1303,15 @@ export default function CollectionPage() {
         setListings(prev => trimFloorSide(mergeListingsWithRepriceTimer(prev, incoming), pageOpenedAtRef.current));
       } catch { /* transient */ }
     };
+    // Cold-open preview (~0.3s): the ~10 cheapest, painted only while the
+    // panel is still empty. The full snapshot replaces them in place (same ids).
+    void fetch(`${API_BASE}/api/collections/listings/preview?slug=${encodeURIComponent(slug)}`)
+      .then(r => r.ok ? r.json() as Promise<{ listings: ListingRow[] }> : null)
+      .then(j => {
+        if (cancelled || !j || !Array.isArray(j.listings) || j.listings.length === 0) return;
+        setListings(prev => prev.length > 0 ? prev : j.listings);
+      })
+      .catch(() => { /* preview is best-effort */ });
     load();
     const id = setInterval(load, LISTINGS_REFRESH_MS);
     return () => { cancelled = true; clearInterval(id); };

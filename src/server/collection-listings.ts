@@ -14,7 +14,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { ensureFresh, getByCollection, Listing } from './listings-store';
+import { ensureFresh, getByCollection, previewCheapest, Listing } from './listings-store';
 import { rateLimit, isValidSlug } from './rate-limit';
 import { getTopOffers } from './nft-offers';
 import { getBidsForSlug } from './collection-bids';
@@ -141,6 +141,19 @@ export function createCollectionListingsRouter(): Router {
     } catch (err) {
       console.error('[collections/listings] error', err);
       res.status(500).json({ error: 'internal' });
+    }
+  });
+
+  // Cold-open preview: the ~10 cheapest listings in one fast ME call, so the
+  // panel paints at once; the full /listings snapshot replaces them in place.
+  router.get('/listings/preview', listingsLimit, async (req: Request, res: Response) => {
+    const slug = String(req.query.slug ?? '').trim();
+    if (!isValidSlug(slug)) { res.status(400).json({ error: 'invalid slug' }); return; }
+    try {
+      const rows = await previewCheapest(slug, 10);
+      res.json({ listings: rows.map(toListingOut) });
+    } catch {
+      res.json({ listings: [] });
     }
   });
 
