@@ -48,6 +48,23 @@ function rememberVerified(mintAddress: string): void {
 }
 let workerScheduled            = false;
 
+/** Core groups whose first mint DAS already confirmed as a real Core asset.
+ *  Later Core mints of the same group skip the per-mint DAS call: an MPL
+ *  Core asset can't be fungible (the per-mint check exists for Token
+ *  Metadata groups, where a fungible can join an NFT group), and ~95% of
+ *  daily verifies were Core with zero rejects. TM / pNFT / cNFT stay
+ *  per-mint. Bounded FIFO like verifiedMints. */
+const CORE_GROUPS_MAX = 20_000;
+const verifiedCoreGroups = new Set<string>();
+let coreVerifySkips = 0;
+function rememberCoreGroup(groupingKey: string): void {
+  verifiedCoreGroups.add(groupingKey);
+  if (verifiedCoreGroups.size > CORE_GROUPS_MAX) {
+    const oldest = verifiedCoreGroups.values().next().value;
+    if (oldest !== undefined) verifiedCoreGroups.delete(oldest);
+  }
+}
+
 let warmEnrichSkips = 0;
 export function enqueueMintEnrichment(
   groupingKey: string,
@@ -66,6 +83,12 @@ export function enqueueMintEnrichment(
   }
   if (verifiedMints.has(mintAddress)) return;       // already attempted
   rememberVerified(mintAddress);
+  if (programSource === 'mpl_core' && verifiedCoreGroups.has(groupingKey)) {
+    if (coreVerifySkips++ % 200 === 0) {
+      console.log(`[mints/enrich] core group already verified — DAS skipped (count=${coreVerifySkips})`);
+    }
+    return;
+  }
   pending.push({ groupingKey, mintAddress, programSource });
   if (pending.length > PENDING_MAX) {
     // Drop oldest — under a hot launch the freshest entries are the
@@ -134,6 +157,7 @@ async function runWorker(): Promise<void> {
         continue;
       }
       noteFilterAccept(verdict.kind ?? 'unknown', next.mintAddress);
+      if (next.programSource === 'mpl_core' && verdict.kind === 'core') rememberCoreGroup(next.groupingKey);
       // Patch GROUP-level fields only. Both per-NFT `nftName` AND per-NFT
       // `imageUrl` are intentionally dropped here: this DAS call resolves
       // a specific mintAddress, so `meta.imageUrl` is the asset image of

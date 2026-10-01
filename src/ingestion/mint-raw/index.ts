@@ -1897,7 +1897,7 @@ export async function ingestMintRaw(
           // Core' — see frontend source.ts), it just marks the Core standard.
           coreLaunchpad:     true,
         });
-        if (emitted) enqueueMintEnrichment(groupingKey, me.mintAddress);
+        if (emitted) enqueueMintEnrichment(groupingKey, me.mintAddress, 'mpl_core');
         scheduleCollectionConfirmation(groupingKey, me.mintAddress, me.collectionAddress, sig);
         // Collection-level identity. `getAsset(collectionAddress)` resolves
         // the ME drop's name + image (the per-NFT DAS path returns the asset
@@ -2077,7 +2077,7 @@ export async function ingestMintRaw(
             // divide by nftCount again. See MintEventWire.pricePerMint.
             pricePerMint:      true,
           });
-          if (emitted) enqueueMintEnrichment(groupingKey, gen.mintAddress);
+          if (emitted) enqueueMintEnrichment(groupingKey, gen.mintAddress, 'mpl_core');
           scheduleCollectionConfirmation(groupingKey, gen.mintAddress, gen.collectionAddress, sig);
           // Collection-level identity — same pattern as the ME / Core CM
           // branches above; without it the row only ever sees per-NFT DAS.
@@ -2145,7 +2145,7 @@ export async function ingestMintRaw(
               // is found.
               sourceLabel:       'Metaplex Core',
             });
-            if (emitted) enqueueMintEnrichment(groupingKey, v2.mintAddress);
+            if (emitted) enqueueMintEnrichment(groupingKey, v2.mintAddress, 'mpl_core');
             // Parser already supplied a collection address. Schedule
             // the same async DAS confirmation the targeted Core
             // branch uses — drops the row later if DAS can't
@@ -2410,7 +2410,7 @@ export async function ingestMintRaw(
       minter:            lp.minter,
       sourceLabel:       launchpadSourceLabel(lp.source),
     });
-    if (emitted) enqueueMintEnrichment(groupingKey, lp.mintAddress);
+    if (emitted) enqueueMintEnrichment(groupingKey, lp.mintAddress, programSource);
     // LMNFT featured-set lookup. Synchronous cache read — hits surface
     // owner/collectionId on the wire immediately so the source pill
     // becomes clickable on the very first row, not after the 15 s DAS
@@ -2706,7 +2706,7 @@ export async function ingestMintRaw(
   // ever (enricher dedups internally). Never awaited; ingestion
   // continues regardless. Skipped when the feed card was sampled out.
   if (emitted && mintAddress) {
-    enqueueMintEnrichment(groupingKey, mintAddress);
+    enqueueMintEnrichment(groupingKey, mintAddress, hit.programSource);
   }
   // Sampled debug: 1-in-25 to show recordMint() is firing without
   // flooding during a hot Token Metadata launch.
