@@ -111,22 +111,21 @@ function saveToken(wallet: string, token: string, expiresAt: number) {
   try { sessionStorage.setItem(tokenKey(wallet), JSON.stringify({ token, expiresAt })); } catch { /* per-tab convenience only */ }
 }
 
-export function FireSalePanel({ wallet, groupLamports }: {
-  wallet: string | null;
-  /** label -> on-chain solPayment lamports, from the inspection. */
-  groupLamports: Record<string, string | null>;
-}) {
+// Shared offer state + login/spin. Both the fire-sale panel and the Stages
+// view need an ACTIVE offer before the cosigner (/api/mint/sign) will sign —
+// the spin is what creates that offer. The spin's random tier only matters
+// to the fire-sale mint; once an offer is live the cosigner will sign a mint
+// for any stage, which is what the Stages view relies on.
+function usePrinterOffer(wallet: string | null) {
   const [token, setToken] = useState<string | null>(null);
   const [st, setSt] = useState<FireState | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [sig, setSig] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
-  const assetRef = useRef<{ offerId: string; kp: Keypair } | null>(null);
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   useEffect(() => {
-    setSt(null); setSig(null); setMsg(null);
+    setSt(null); setMsg(null);
     const t = wallet ? loadToken(wallet) : null;
     setToken(t);
     if (wallet && t) api('state', t, { wallet }).then(setSt).catch(() => setToken(null));
@@ -164,6 +163,56 @@ export function FireSalePanel({ wallet, groupLamports }: {
     assertWallet();
     setSt(await api('spin', token, { wallet }));
   });
+
+  const offer = st?.offer ?? null;
+  const left = offer ? Math.max(0, Math.floor((offer.expiresAt - now) / 1000)) : 0;
+  const offerLive = !!offer && offer.status === 'revealed' && left > 0;
+
+  return { token, st, setSt, busy, msg, setMsg, left, offer, offerLive, run, assertWallet, login, spin };
+}
+
+// Compact "spin to unlock the cosigner" bar for the Stages view. Minting a
+// chosen stage goes through the normal Candy Mint cosign path, which the
+// project's cosigner only honours while the wallet has an active offer.
+export function PrinterUnlockBar({ wallet }: { wallet: string | null }) {
+  const { token, busy, msg, left, offer, offerLive, login, spin } = usePrinterOffer(wallet);
+  const rolled = offerLive ? offer!.quote.group : null;
+  return (
+    <div style={{ ...PANEL, padding: 12, marginBottom: 16 }}>
+      <div style={{ fontWeight: 700, marginBottom: 6 }}>Cosigner access</div>
+      <div style={{ fontSize: 12.5, opacity: 0.75, marginBottom: 10 }}>
+        The cosigner only signs a mint that matches your active offer. Each spin rolls one tier — mint the stage that matches the roll below
+        (or re-spin for a different tier) before the timer runs out.
+      </div>
+      {!wallet && <div style={{ fontSize: 13 }}>Connect a wallet first.</div>}
+      {wallet && !token && <ToolButton onClick={login} disabled={busy}>Sign in (free message)</ToolButton>}
+      {wallet && token && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+          <div style={{ ...MONO, fontSize: 13 }}>
+            {offerLive
+              ? <>Rolled <b>{rolled}</b> · {(Number(offer!.quote.lamports) / 1e9).toFixed(3)} SOL
+                  {offer!.quote.burnAtoms !== '0' && <> + {(Number(offer!.quote.burnAtoms) / 1e6).toLocaleString('en-US')} PRINTER</>}
+                  {' · '}{Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')} left — mint the <b>{rolled}</b> stage</>
+              : <>Locked — spin to roll a tier</>}
+          </div>
+          <ToolButton onClick={spin} disabled={busy}>{offerLive ? 'Re-spin' : 'Spin'}</ToolButton>
+        </div>
+      )}
+      {msg && <div style={{ marginTop: 10, fontSize: 12.5 }}>{msg}</div>}
+    </div>
+  );
+}
+
+export function FireSalePanel({ wallet, groupLamports }: {
+  wallet: string | null;
+  /** label -> on-chain solPayment lamports, from the inspection. */
+  groupLamports: Record<string, string | null>;
+}) {
+  const { token, st, setSt, busy, msg, setMsg, left, offer, offerLive, run, assertWallet, login, spin } = usePrinterOffer(wallet);
+  const [sig, setSig] = useState<string | null>(null);
+  const assetRef = useRef<{ offerId: string; kp: Keypair } | null>(null);
+
+  useEffect(() => { setSig(null); }, [wallet]);
 
   const mint = () => run(async () => {
     assertWallet();
@@ -227,10 +276,6 @@ export function FireSalePanel({ wallet, groupLamports }: {
     }
     setMsg('Submitted — still confirming. Check the signature below.');
   });
-
-  const offer = st?.offer ?? null;
-  const left = offer ? Math.max(0, Math.floor((offer.expiresAt - now) / 1000)) : 0;
-  const offerLive = !!offer && offer.status === 'revealed' && left > 0;
 
   return (
     <div style={{ ...PANEL, padding: 16 }}>

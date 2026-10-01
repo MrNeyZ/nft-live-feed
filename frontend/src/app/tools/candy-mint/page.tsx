@@ -47,7 +47,7 @@ import {
   type FrozenMintIntent, type ResolvedGuardPayment, type PaymentAuthorization,
 } from './intent';
 import { auditCandyMintTx } from './audit';
-import { FireSalePanel, PRINTER_CANDY_MACHINE } from './fire-sale';
+import { PrinterUnlockBar, PRINTER_CANDY_MACHINE } from './fire-sale';
 
 interface MintLimitStatus {
   id: number;
@@ -1372,11 +1372,10 @@ export default function CandyMintPage() {
         </div>
       )}
 
+      {/* Printer CM: the cosigner only signs while an offer is active, so
+          expose a spin-to-unlock bar above the stages. */}
       {loaded && loaded.inspection.candyMachine === PRINTER_CANDY_MACHINE && (
-        <FireSalePanel
-          wallet={wallet}
-          groupLamports={Object.fromEntries(loaded.inspection.groups.map((g) => [g.label ?? '', g.solPaymentLamports]))}
-        />
+        <PrinterUnlockBar wallet={wallet} />
       )}
 
       {/* ── launchpad hero — stays mounted through the whole mint flow ──── */}
