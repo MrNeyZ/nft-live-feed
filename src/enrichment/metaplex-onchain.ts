@@ -370,7 +370,7 @@ export async function fetchMetaFromJsonUri(
       return none;
     }
 
-    let parsed: Parameters<typeof pickOffchainImage>[0] & { name?: unknown };
+    let parsed: Parameters<typeof pickOffchainImage>[0] & { name?: unknown; edition?: unknown };
     try {
       parsed = JSON.parse(text);
     } catch {
@@ -380,9 +380,14 @@ export async function fetchMetaFromJsonUri(
 
     const raw = avifToPng(pickOffchainImage(parsed));
     const image = raw ? normaliseUri(raw) : null;
-    const name = typeof parsed.name === 'string' && parsed.name.trim().length > 0
+    let name = typeof parsed.name === 'string' && parsed.name.trim().length > 0
       ? parsed.name.trim()
       : null;
+    // LMNFT-style JSON: bare collection name + numeric `edition` ("Retardio",
+    // 2629). Marketplaces render it "Retardio #2629" — do the same.
+    const ed = typeof parsed.edition === 'number' ? parsed.edition
+      : typeof parsed.edition === 'string' && /^\d+$/.test(parsed.edition) ? Number(parsed.edition) : null;
+    if (name && ed != null && Number.isFinite(ed) && !/#\s*\d+/.test(name)) name = `${name} #${ed}`;
     console.log(`[enrich/json-uri] mint=${tag} image=${image ? 'yes' : 'no'} name=${name ? 'yes' : 'no'} reason=${image || name ? 'ok' : 'no_image'}`);
     return { image, name };
   } catch (err) {

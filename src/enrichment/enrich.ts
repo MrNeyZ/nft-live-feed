@@ -517,9 +517,13 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
     // on-chain fallback above silently no-ops). Fetch the json_uri ONCE and
     // pull the image straight from the off-chain JSON. Gated on imageUrl still
     // null, so it never runs when DAS already gave us an image.
-    if (metadata && !metadata.imageUrl && metadata.jsonUri) {
-      const offImg = (await fetchMetaFromJsonUri(metadata.jsonUri, mint)).image;
-      if (offImg) metadata = { ...metadata, imageUrl: offImg };
+    // Also runs for a missing name: LMNFT Core mints carry a blank on-chain
+    // name, and only the JSON (name + edition) has the per-item number.
+    if (metadata && (!metadata.imageUrl || !metadata.nftName) && metadata.jsonUri) {
+      const off = await fetchMetaFromJsonUri(metadata.jsonUri, mint);
+      if (off.image || off.name) {
+        metadata = { ...metadata, imageUrl: metadata.imageUrl ?? off.image, nftName: metadata.nftName ?? off.name };
+      }
     }
 
     // ── Slug resolution: LOCAL-FIRST, Magic Eden only on miss ────────────────

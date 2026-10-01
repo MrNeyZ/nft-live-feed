@@ -43,6 +43,8 @@ import { TCOMP_PROGRAM } from '../ingestion/tensor-raw/programs';
 import { snapshotMeOnchain, rememberMeSeller, forgetMeListingTime, type OnchainMeListing } from './me-onchain-listings';
 import { primeSlugMints, slugForCollection, resolveMintSlug, lazyStats, isSlugTruncated } from '../ingestion/listing-stream/collection-resolver';
 import { nonBlankName } from '../enrichment/name-util';
+import { getMeTokenData } from '../enrichment/me-token-cache';
+import { fetchMetaFromJsonUri } from '../enrichment/metaplex-onchain';
 
 export type ListingSource = 'ME' | 'MMM' | 'TENSOR';
 export type ListingType   = 'listing' | 'pool';
@@ -209,6 +211,10 @@ function replaceCollection(slug: string, listings: Listing[]): void {
     for (const id of Array.from(ids)) removeById(id);
   }
   for (const l of listings) add(l);
+  // Snapshot rows the source left nameless (blank LMNFT placeholder names):
+  // fill from DAS → ME per-item name. Cached per mint, so later refreshes
+  // re-apply from cache without new calls.
+  for (const l of listings) if (!l.nftName && !l.id.startsWith('MMM:')) queueDasMeta(l.mint, l.id);
 }
 
 // ─── Activity tracking + GC sweep ────────────────────────────────────────────
@@ -1369,14 +1375,34 @@ setInterval(() => {
 const DAS_FLUSH_MS  = 1_500;
 const DAS_BATCH_MAX = 1000;
 const DAS_CACHE_MAX = 50_000;
-type DasMeta = { name: string | null; image: string | null };
+type DasMeta = { name: string | null; image: string | null; jsonUri?: string | null; nameTried?: boolean };
 const dasCache = new Map<string, DasMeta>();
 const dasQueue = new Map<string, Set<string>>();   // mint → row ids waiting
 let dasTimer: NodeJS.Timeout | null = null;
 
+/** Blank on-chain name (LMNFT Core placeholder) → per-item name from the
+ *  off-chain JSON (name + edition), else ME. A failed attempt clears
+ *  `nameTried`, so the next snapshot re-asks. */
+function meNameFallback(mint: string, meta: DasMeta, ids: Iterable<string>): void {
+  if (meta.nameTried) return;
+  meta.nameTried = true;
+  // Off-chain JSON first (name + edition, no rate limit), ME as backstop.
+  void (async () => {
+    const name = (meta.jsonUri ? (await fetchMetaFromJsonUri(meta.jsonUri, mint)).name : null)
+      ?? (await getMeTokenData(mint)).nftName;
+    if (!name) { meta.nameTried = false; return; }
+    meta.name = name;
+    for (const id of ids) applyMeta(id, name, null);
+  })().catch(() => { meta.nameTried = false; });
+}
+
 function queueDasMeta(mint: string, id: string): void {
   const hit = dasCache.get(mint);
-  if (hit) { applyMeta(id, hit.name, hit.image); return; }
+  if (hit) {
+    applyMeta(id, hit.name, hit.image);
+    if (!hit.name) meNameFallback(mint, hit, [id]);
+    return;
+  }
   let ids = dasQueue.get(mint);
   if (!ids) dasQueue.set(mint, ids = new Set());
   ids.add(id);
@@ -1397,7 +1423,7 @@ async function flushDasMeta(): Promise<void> {
       body: JSON.stringify({ jsonrpc: '2.0', id: 'listing-meta', method: 'getAssetBatch', params: { ids: batch.map(([m]) => m) } }),
       signal: AbortSignal.timeout(15_000),
     });
-    const json = await res.json() as { result?: Array<{ id: string; content?: { metadata?: { name?: string }; links?: { image?: string }; files?: Array<{ uri?: string }> } } | null> };
+    const json = await res.json() as { result?: Array<{ id: string; content?: { json_uri?: string; metadata?: { name?: string }; links?: { image?: string }; files?: Array<{ uri?: string }> } } | null> };
     streamStats.dasCalls++;
     const found = new Map<string, DasMeta>();
     for (const a of json.result ?? []) {
@@ -1406,6 +1432,7 @@ async function flushDasMeta(): Promise<void> {
       found.set(a.id, {
         name:  a.content?.metadata?.name?.trim() || null,
         image: a.content?.links?.image || a.content?.files?.[0]?.uri || null,
+        jsonUri: a.content?.json_uri || null,
       });
     }
     for (const [mint, ids] of batch) {
@@ -1413,6 +1440,7 @@ async function flushDasMeta(): Promise<void> {
       if (dasCache.size >= DAS_CACHE_MAX) dasCache.delete(dasCache.keys().next().value!);
       dasCache.set(mint, meta);
       for (const id of ids) applyMeta(id, meta.name, meta.image);
+      if (!meta.name) meNameFallback(mint, meta, ids);
     }
   } catch (err) {
     console.warn('[listings/stream] das meta failed', (err as Error).message);
