@@ -77,9 +77,10 @@ function deriveSts(seller: string, auctionHouse: string, tokenAccount: string, m
 }
 
 function remember(mint: string, sts: string, seller: string, listedAtMs?: number): void {
-  // Stream time only seeds an unknown STS: a later tx on a known one is a
-  // reprice, and the row's age is from the listing's start (ME semantics).
-  if (listedAtMs != null && !listedAtBySts.has(sts)) setListedAt(sts, listedAtMs);
+  // Stream time is the list OR reprice tx: a reprice counts as a fresh
+  // listing (product rule — relists surface as new), so a newer stream time
+  // always wins over the STS's original start.
+  if (listedAtMs != null && listedAtMs > (listedAtBySts.get(sts) ?? 0)) setListedAt(sts, listedAtMs);
   if (stsByMint.get(mint) === sts) return;
   stsByMint.set(mint, sts);
   pendingWrites.set(mint, { sts, seller });
