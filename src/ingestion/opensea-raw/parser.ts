@@ -22,7 +22,14 @@
 import { RawSolanaTx } from './types';
 import { SaleEvent, NftType } from '../../models/sale-event';
 import { OPENSEA_PROGRAM, OPENSEA_SALE_INSTRUCTIONS } from './programs';
-import { extractPaymentInfo, extractNftMint, balanceDeltas } from '../me-raw/price';
+import {
+  extractPaymentInfo,
+  extractUsdcPayment,
+  extractNftMint,
+  balanceDeltas,
+  detectSaleCurrency,
+  currencyDecimals,
+} from '../me-raw/price';
 import { extractCoreAssetFromInnerIx } from '../me-raw/decoder';
 
 export type ParseResult =
@@ -82,21 +89,26 @@ export function parseRawOpenseaTransaction(tx: RawSolanaTx): ParseResult {
     return { ok: false, reason: 'opensea: could not resolve NFT mint' };
   }
 
-  // NOTE: priced off the SOL balance delta for every instruction, including
-  // buyCoreSpl. That's wrong for a real SPL/USDC-denominated buyCoreSpl sale
-  // (the price would live in a token-balance delta instead) — acceptable for
-  // now since only near-zero/test examples of that path have been observed;
-  // revisit once a real-value example appears (see programs.ts).
-  const payment = extractPaymentInfo(tx);
+  // buyCoreSpl is SPL-priced (USDC): the SOL balance delta there is only the
+  // tx fee + listing rent (~0.00003 SOL — what this used to display), and the
+  // real price is the buyer's USDC token-balance decrease. Same currency
+  // detection + raw-units convention as the ME v2 USDC path (priceLamports =
+  // raw 6-decimal units, priceSol = display value, currency = 'USDC').
+  // Gate on the instruction, not on "any USDC balance in the tx": OpenSea's
+  // relayer (SeaPaYBf…) charges the buyer a small USDC gas fee on plain
+  // SOL buyCore sales too, which made a 1 SOL sale read as 0.00264 USDC.
+  const currency = ix === 'buycorespl' ? detectSaleCurrency(tx) : 'SOL';
+  const payment = currency === 'USDC' ? extractUsdcPayment(tx) : extractPaymentInfo(tx);
   if (!payment) {
-    return { ok: false, reason: 'opensea: could not resolve SOL payment flow' };
+    return { ok: false, reason: `opensea: could not resolve ${currency} payment flow` };
   }
   if (payment.buyer === payment.seller) {
     return { ok: false, reason: 'opensea: buyer === seller' };
   }
 
   const nftType: NftType = isCore ? 'core' : 'legacy';
-  const sellerNet = computeSellerNet(tx, payment.seller);
+  // Seller SOL delta is meaningless for a USDC sale — same null as ME's USDC path.
+  const sellerNet = currency === 'SOL' ? computeSellerNet(tx, payment.seller) : null;
 
   const event: SaleEvent = {
     signature:         tx.signature,
@@ -108,10 +120,10 @@ export function parseRawOpenseaTransaction(tx: RawSolanaTx): ParseResult {
     seller:            payment.seller,
     buyer:             payment.buyer,
     priceLamports:     payment.priceLamports,
-    priceSol:          Number(payment.priceLamports) / 1e9,
+    priceSol:          Number(payment.priceLamports) / 10 ** currencyDecimals(currency),
     sellerNetLamports: sellerNet,
     sellerNetPriceSol: sellerNet != null ? Number(sellerNet) / 1e9 : null,
-    currency:          'SOL',
+    currency,
     rawData: {
       _parser:      'opensea_raw',
       _instruction: ix,

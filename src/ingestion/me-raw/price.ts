@@ -228,6 +228,45 @@ export function currencyDecimals(currency: Currency): number {
   return currency === 'USDC' ? 6 : 9;
 }
 
+/**
+ * Buyer / seller / price for a USDC-priced sale, from USDC token-balance
+ * deltas summed per token-account OWNER (a wallet can hold several USDC
+ * accounts; the owner's net is what actually moved).
+ *
+ *   buyer  = owner with the largest USDC decrease. `priceLamports` is that
+ *            decrease in raw base units (6 decimals) — the buyer's total
+ *            outflow, same "includes marketplace fee + royalties" meaning as
+ *            `extractPaymentInfo`'s SOL figure.
+ *   seller = owner with the largest USDC increase. Marketplace-fee and
+ *            royalty wallets always receive a strictly smaller cut, so the
+ *            biggest recipient is the seller. Callers that know the seller's
+ *            instruction-account index should prefer it over this.
+ *
+ * The SOL balance delta is meaningless for these sales (it's only the tx fee
+ * + listing-account rent — this is what priced them at ~0.00003 SOL before).
+ * Null when no owner-attributed USDC movement exists.
+ */
+export function extractUsdcPayment(tx: RawSolanaTx): PaymentInfo | null {
+  const byOwner = new Map<string, bigint>();
+  const add = (list: RawTokenBalance[] | undefined, sign: 1n | -1n) => {
+    for (const b of list ?? []) {
+      if (b.mint !== USDC_MINT || !b.owner) continue;
+      byOwner.set(b.owner, (byOwner.get(b.owner) ?? 0n) + sign * BigInt(b.uiTokenAmount.amount));
+    }
+  };
+  add(tx.meta?.postTokenBalances, 1n);
+  add(tx.meta?.preTokenBalances, -1n);
+
+  let buyer: string | null = null, seller: string | null = null;
+  let minDelta = 0n, maxDelta = 0n;
+  for (const [owner, delta] of byOwner) {
+    if (delta < minDelta) { minDelta = delta; buyer = owner; }
+    if (delta > maxDelta) { maxDelta = delta; seller = owner; }
+  }
+  if (!buyer || !seller || buyer === seller) return null;
+  return { buyer, seller, priceLamports: -minDelta };
+}
+
 export function extractPartiesFromTokenFlow(
   tx: RawSolanaTx,
   mint: string

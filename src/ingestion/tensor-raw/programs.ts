@@ -96,6 +96,28 @@ export const TCOMP_SALE_INSTRUCTIONS: TcompIxDef[] = [
     coreAssetIdx:  2,
   },
   {
+    // ✅ VERIFIED 2026-09-21 — TComp Core listing purchase priced in an SPL
+    // currency (USDC), e.g. an OpenSea Solana buy of a Tensor-listed Core NFT
+    // (sig 5xdjAnm5vRzzv921xR4wuXGdAyr7VUfhb3JZYYy4JwwLPabdyAnEKUjSZaT7i64fJfTNEQh7JCqAGwCbQH9pvGAr,
+    // 0.102 USDC). IDL name: buyCoreSpl. Discriminator = anchorDisc('buy_core_spl'):
+    // ea 1c 25 7a 72 ef e9 d0. Was silently dropped as "no recognised Tensor
+    // sale instruction" before.
+    // Layout: accounts[2] = buyer (also [9] payer), accounts[4] = Core asset
+    // (matches the inner MPL Core Transfer's accounts[0]), accounts[6] = USDC
+    // mint, accounts[7] = seller — the USDC payout wallet AND the wallet that
+    // signed the listing (asset history: it co-signs every list tx). accounts[15]
+    // is NOT the seller: it's the gasless-listing fee payer that gets the
+    // closed listing account's rent back. Price is USDC, not SOL — the parser
+    // reads it from token-balance deltas (see parseTcompSale).
+    name:          'buyCoreSpl',
+    disc:          Buffer.from('ea1c257a72efe9d0', 'hex'),
+    verified:      true,
+    direction:     'buy',
+    buyerAcctIdx:  2,
+    sellerAcctIdx: 7,
+    coreAssetIdx:  4,
+  },
+  {
     // ✅ VERIFIED — confirmed from sig 2 (bid accept, Core NFT).
     // IDL name: takeBidCore. Discriminator: fa 29 f8 14 3d a1 1b 8d
     // Seller = accounts[1], Core asset = accounts[8], Buyer = accounts[3].

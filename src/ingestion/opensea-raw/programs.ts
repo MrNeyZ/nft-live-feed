@@ -31,11 +31,9 @@ export const OPENSEA_PROGRAMS = new Set([OPENSEA_PROGRAM]);
  *   buyCore       ✅ VERIFIED — 10 live Bulltoshi sales (0.15–0.60 SOL),
  *                 cross-checked against Magic Eden's floor for the collection.
  *   buyLegacy     ✅ VERIFIED — 3 live BoDoggos/Cet sales (0.40–1.10 SOL).
- *   buyCoreSpl    ⚠️ UNVERIFIED — only near-zero/test-value examples seen so
- *                 far (SPL/USDC-denominated Core buy). Parser currently prices
- *                 it off the SOL balance delta like every other path, which
- *                 will read near-zero/wrong for a real SPL-priced sale —
- *                 revisit once a real-value example appears.
+ *   buyCoreSpl    ✅ VERIFIED 2026-09-21 — USDC-denominated Core buy (0.1 USDC
+ *                 sig 2kPUbCga…). Priced from the buyer's USDC token-balance
+ *                 decrease (extractUsdcPayment), NOT the SOL delta (= tx fee).
  *   takeBidLegacy ⚠️ UNVERIFIED — single near-zero/test example (bid accept).
  *
  * NOT sales (parser must ignore): listCore / listLegacy / list / delistCore /

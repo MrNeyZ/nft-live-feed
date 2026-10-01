@@ -594,7 +594,8 @@ export const FeedCard = memo(function FeedCard({
   // Same fractional shape (price/floor − 1) the backend produces, so
   // `FloorChip` renders identically.
   let effectiveFloorDelta: number | null | undefined = event.floorDelta;
-  if (effectiveFloorDelta == null && slugFloor != null && slugFloor > 0 && safePrice != null) {
+  // SOL-priced only: slugFloor is SOL, a USDC price would give a bogus delta.
+  if (effectiveFloorDelta == null && (event.currency || 'SOL') === 'SOL' && slugFloor != null && slugFloor > 0 && safePrice != null) {
     effectiveFloorDelta = (safePrice - slugFloor) / slugFloor;
   }
   // Row-flash class lasts 6 s from the wall-clock LIVE arrival

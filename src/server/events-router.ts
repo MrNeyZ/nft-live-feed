@@ -126,14 +126,17 @@ function stampFromCache<T extends {
   price_lamports: number | string | bigint;
   mint_address: string | null;
   floor_delta?: number | null;
+  currency?: string | null;
 }>(rows: T[]): Array<T & { floor_delta?: number | null; resize_status?: string | null; rent_refund?: string | null; minted_at_ms?: number | null }> {
   return rows.map((r) => {
     let row: T & { floor_delta?: number | null; resize_status?: string | null; rent_refund?: string | null; minted_at_ms?: number | null } = r;
     // Prefer the value persisted at enrichment time (migration 017).
     // Only fall back to the live floor cache when the DB has no value —
     // this keeps badges consistent across reloads even when the floor cache
-    // is cold after a backend restart.
-    if (r.floor_delta == null) {
+    // is cold after a backend restart. Floors are SOL-denominated (mirrors
+    // the enrich.ts guard) — a USDC sale's raw base units would read as a
+    // bogus delta vs. the SOL floor, so skip non-SOL sales.
+    if (r.floor_delta == null && r.currency === 'SOL') {
       const floor = peekCachedFloorLamports(r.me_collection_slug);
       if (floor != null) {
         const priceLam = Number(r.price_lamports);

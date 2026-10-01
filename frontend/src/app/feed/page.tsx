@@ -546,7 +546,8 @@ export default function FeedPage() {
             ? floorBySlugRef.current[ev.meCollectionSlug]
             : null;
           const safePrice = Number.isFinite(ev.price) ? ev.price : ev.grossPrice;
-          if (shouldPlayBelowFloorAlert(alertFloorSol, safePrice)) {
+          // SOL-priced only: the floor is SOL, a USDC price would false-trigger.
+          if ((ev.currency || 'SOL') === 'SOL' && shouldPlayBelowFloorAlert(alertFloorSol, safePrice)) {
             playDeepDiscountAlert(ev.signature);
           }
           // Stamp wall-clock arrival on the LIVE path only — gates the

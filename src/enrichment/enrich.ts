@@ -652,7 +652,9 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
 
   const isTensor = enriched.marketplace === 'tensor' || enriched.marketplace === 'tensor_amm';
   const [floorDelta, tensorCollectionSlug] = await Promise.all([
-    computeFloorDelta(slug, event.priceLamports),
+    // Floors are SOL-denominated — a USDC-priced sale's raw base units would
+    // read as a bogus ~-100% vs floor, so skip (chip hidden).
+    event.currency === 'SOL' ? computeFloorDelta(slug, event.priceLamports) : Promise.resolve(null),
     isTensor ? resolveTensorCollectionSlug(slug, enriched.collectionAddress) : Promise.resolve(null),
   ]);
   // offerDelta: permanently null — Stage 4.5 removed the ME collection

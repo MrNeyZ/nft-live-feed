@@ -17,6 +17,7 @@ import { RawSolanaTx } from './types';
 import { SaleEvent, NftType, CNFT_MIN_PRICE_LAMPORTS } from '../../models/sale-event';
 import { computeSellerNetLamports } from '../seller-net';
 import { TAMM_PROGRAM } from './programs';
+import { detectSaleCurrency, extractUsdcPayment, currencyDecimals } from '../me-raw/price';
 import {
   isTensorTransaction,
   findTcompSaleIx,
@@ -153,9 +154,15 @@ function parseTcompSale(
   // direct lamport manipulation (no inner System Transfer CPIs), so the cNFT
   // inner-transfer scan finds nothing and returns null. Use SOL-delta for those:
   // the bidder's wallet carries the largest decrease and gives the correct price.
-  const payment = (nftType === 'cnft' && !isBidAcceptance)
-    ? extractCnftPaymentInfo(tx, match.ix)
-    : extractPaymentInfo(tx);
+  // USDC-priced sale (buyCoreSpl): the SOL delta is only fee + listing rent,
+  // so price comes from the buyer's USDC token-balance decrease instead. Same
+  // detection + raw-units convention as the ME v2 USDC path.
+  const currency = detectSaleCurrency(tx);
+  const payment = currency === 'USDC'
+    ? extractUsdcPayment(tx)
+    : (nftType === 'cnft' && !isBidAcceptance)
+      ? extractCnftPaymentInfo(tx, match.ix)
+      : extractPaymentInfo(tx);
   if (!payment || payment.priceLamports <= 0n) {
     return { ok: false, reason: `tcomp(${match.instructionName}): could not determine price` };
   }
@@ -187,7 +194,8 @@ function parseTcompSale(
 
   // ── Build event ────────────────────────────────────────────────────────────
 
-  const sellerNet = computeSellerNetLamports(tx, seller);
+  // SOL-delta seller proceeds are meaningless for a USDC sale (null, as on ME's USDC path).
+  const sellerNet = currency === 'SOL' ? computeSellerNetLamports(tx, seller) : null;
   const event: SaleEvent = {
     signature:         tx.signature,
     blockTime:         new Date(tx.blockTime! * 1000),
@@ -198,10 +206,10 @@ function parseTcompSale(
     seller,
     buyer,
     priceLamports:     payment.priceLamports,
-    priceSol:          Number(payment.priceLamports) / 1e9,
+    priceSol:          Number(payment.priceLamports) / 10 ** currencyDecimals(currency),
     sellerNetLamports: sellerNet,
     sellerNetPriceSol: sellerNet != null ? Number(sellerNet) / 1e9 : null,
-    currency:          'SOL',
+    currency,
     rawData: {
       _parser:      'tensor_raw',
       _instruction: match.instructionName,
