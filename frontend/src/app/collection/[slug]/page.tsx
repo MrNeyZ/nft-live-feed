@@ -14,7 +14,7 @@
 // the original ListingRow's static price label gains a TypeBadge that
 // becomes the live Buy button.
 
-import { Fragment, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { authHeaders } from '@/runtime/auth';
 import { CATEGORY_LAYER, FeedEvent, formatSol, shortWallet } from '@/soloist/mock-data';
@@ -41,6 +41,7 @@ import {
   connectPhantom,
   eagerConnectPhantom,
   getPhantom,
+  signAllMixedAndSend,
   signSendAndConfirm,
 } from '@/wallet/phantom';
 
@@ -63,6 +64,11 @@ const STATS_REFRESH_MS    = 60_000;
 // This interval is only the reconciliation safety net for transitions the
 // backend doesn't yet observe as events (cancel/delist/pool deposits).
 const LISTINGS_REFRESH_MS = 5 * 60_000;
+/** Floor-sweep slider: 2 NFTs per tick, up to 20; starts at 2. */
+const SWEEP_STEP = 2;
+const SWEEP_MAX = 20;
+const SWEEP_TICKS = Array.from({ length: SWEEP_MAX / SWEEP_STEP }, (_, i) => (i + 1) * SWEEP_STEP);
+const SWEEP_BUILD_CONCURRENCY = 4;
 
 const SPANS     = ['1H','4H','1D','7D','30D'] as const;
 type Span     = typeof SPANS[number];
@@ -887,7 +893,7 @@ export default function CollectionPage() {
     setLoaded(false); setResolvedName(null);
     setFloorSol(null); setStatsData(null);
     setListedCount(null); setVolumeAllSol(null);
-    setListings([]); setBuyStatuses({});
+    setListings([]); setBuyStatuses({}); setSweepSel(new Set()); setSweepN(SWEEP_STEP);
     setChartPoints([]);
     setListingsShow(INITIAL_REVEAL);
     setTradesShow(INITIAL_REVEAL);
@@ -1201,81 +1207,173 @@ export default function CollectionPage() {
   }, [slug]);
 
   // ── Buy executor (mint-keyed status) ───────────────────────────────────
+  // Backend enforces marketplace allowlist, collection binding, live price +
+  // slippage, and on-tx checks (mint, lamports bound, signer shape). Default
+  // slippage 1% — users can only buy the price we just showed them; any
+  // real-world move rejects here. Tensor: our own buy_core builder (no Tensor
+  // API); ME: buy_now.
+  const buildBuyTx = useCallback(async (listing: ListingRow, buyer: string): Promise<string> => {
+    const isTensor = listing.marketplace === 'tensor';
+    const params = new URLSearchParams({
+      marketplace:      isTensor ? 'tensor' : 'magic_eden',
+      mint:             listing.mint,
+      buyer,
+      collectionSlug:   slug,
+      expectedPriceSol: String(listing.priceSol),
+      maxSlippagePct:   '1',
+    });
+    const url = `${API_BASE}/api/buy/${isTensor ? 'tensor' : 'me'}?${params.toString()}`;
+    const res = await fetch(url, { headers: { ...authHeaders() } });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({} as Record<string, unknown>));
+      if (res.status === 409 && (body as { currentPriceSol?: number }).currentPriceSol != null) {
+        throw new Error(`price changed to ${(body as { currentPriceSol: number }).currentPriceSol} SOL`);
+      }
+      const bd = body as { error?: string; message?: string };
+      throw new Error(bd.message ?? bd.error ?? `HTTP ${res.status}`);
+    }
+    const { txBase64 } = await res.json() as { txBase64: string };
+    return txBase64;
+  }, [slug]);
+
+  // A returned signature only means the RPC accepted it, not that it landed.
+  // /confirm long-polls server-side (~400 ms cadence) and answers the moment
+  // the tx is confirmed or failed; two rounds ≈ 50 s, past blockhash expiry.
+  const confirmBuy = useCallback(async (key: string, signature: string) => {
+    setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'busy', step: 'confirming' } }));
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const r = await fetch(
+          `${API_BASE}/api/buy/me/confirm?sig=${encodeURIComponent(signature)}`,
+          { headers: { ...authHeaders() } },
+        );
+        if (!r.ok) continue;
+        const d = await r.json() as { ok: boolean; status: 'confirmed' | 'failed' | 'pending'; err?: unknown };
+        if (d.status === 'failed') {
+          setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'error', message: 'Transaction failed on-chain: ' + JSON.stringify(d.err) } }));
+          return;
+        }
+        if (d.status === 'confirmed') {
+          setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'done', signature } }));
+          return;
+        }
+      } catch (_) { /* transient — retry */ }
+    }
+    setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'pending', signature } }));
+  }, []);
+
   const onBuyListing = useCallback(async (listing: ListingRow) => {
     if (!walletPubkey) return;
     const key = listing.mint;
     setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'busy', step: 'preparing' } }));
     try {
-      // Backend enforces marketplace allowlist, collection binding, live
-      // price + slippage, and on-tx checks (mint, lamports bound, signer
-      // shape). We default slippage to 1% — users can currently only buy
-      // the price we just showed them; any real-world move rejects here.
-      // Tensor: our own buy_core builder (no Tensor API); ME: buy_now.
-      const isTensor = listing.marketplace === 'tensor';
-      const params = new URLSearchParams({
-        marketplace:      isTensor ? 'tensor' : 'magic_eden',
-        mint:             listing.mint,
-        buyer:            walletPubkey,
-        collectionSlug:   slug,
-        expectedPriceSol: String(listing.priceSol),
-        maxSlippagePct:   '1',
-      });
-      const url = `${API_BASE}/api/buy/${isTensor ? 'tensor' : 'me'}?${params.toString()}`;
-      const res = await fetch(url, { headers: { ...authHeaders() } });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({} as Record<string, unknown>));
-        if (res.status === 409 && (body as { currentPriceSol?: number }).currentPriceSol != null) {
-          throw new Error(`price changed to ${(body as { currentPriceSol: number }).currentPriceSol} SOL`);
-        }
-        const b = body as { error?: string; message?: string };
-        throw new Error(b.message ?? b.error ?? `HTTP ${res.status}`);
-      }
-      const { txBase64, listing: serverListing } = await res.json() as {
-        txBase64: string;
-        listing: { priceSol: number; seller: string; auctionHouse?: string; tokenAta?: string };
-      };
+      const txBase64 = await buildBuyTx(listing, walletPubkey);
       setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'busy', step: 'signing' } }));
       const { signature, txType } = await signSendAndConfirm(txBase64, { sendPath: `${API_BASE}/api/buy/me/send` });
       // eslint-disable-next-line no-console
-      console.log('[buy/me] sent', {
-        mint: listing.mint, seller: serverListing.seller, auctionHouse: serverListing.auctionHouse,
-        priceSol: serverListing.priceSol, tokenAta: serverListing.tokenAta,
-        txType, signature,
-      });
-      setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'busy', step: 'confirming' } }));
-
-      // A returned signature only means the RPC accepted it, not that it
-      // landed. /confirm long-polls server-side (~400 ms cadence) and answers
-      // the moment the tx is confirmed or failed; two rounds ≈ 50 s, past
-      // blockhash expiry.
-      let settled = false;
-      for (let attempt = 0; attempt < 2 && !settled; attempt++) {
-        try {
-          const r = await fetch(
-            `${API_BASE}/api/buy/me/confirm?sig=${encodeURIComponent(signature)}`,
-            { headers: { ...authHeaders() } },
-          );
-          if (!r.ok) continue;
-          const d = await r.json() as { ok: boolean; status: 'confirmed' | 'failed' | 'pending'; err?: unknown };
-          if (d.status === 'failed') {
-            setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'error', message: 'Transaction failed on-chain: ' + JSON.stringify(d.err) } }));
-            settled = true;
-          } else if (d.status === 'confirmed') {
-            setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'done', signature } }));
-            settled = true;
-          }
-        } catch (_) { /* transient — retry */ }
-      }
-      if (!settled) {
-        setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'pending', signature } }));
-      }
+      console.log('[buy/me] sent', { mint: listing.mint, seller: listing.seller, priceSol: listing.priceSol, txType, signature });
+      await confirmBuy(key, signature);
     } catch (err) {
       const message = (err as Error).message ?? String(err);
       setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'error', message } }));
       // eslint-disable-next-line no-console
       console.warn('[buy/me] failed', message);
     }
-  }, [walletPubkey]);
+  }, [walletPubkey, buildBuyTx, confirmBuy]);
+
+  // ── Sweep: click-select listings / floor slider → BUY ALL ──────────────
+  // Every selected listing gets its own tx (same backend checks as a single
+  // buy); all are signed with ONE Phantom approval, then broadcast and
+  // confirmed individually, so one stale listing never sinks the rest.
+  const [sweepSel, setSweepSel] = useState<Set<string>>(() => new Set());
+  const [sweepN,   setSweepN]   = useState(SWEEP_STEP);
+  const [sweepStage, setSweepStage] = useState<'idle' | 'building' | 'signing' | 'sending'>('idle');
+  const isSweepable = useCallback((l: ListingRow) => {
+    if (l.poolKey || (l.marketplace !== 'me' && l.marketplace !== 'tensor')) return false;
+    const k = (buyStatuses[l.mint] ?? { kind: 'idle' }).kind;
+    return k === 'idle' || k === 'error';
+  }, [buyStatuses]);
+  // Cheapest first — what the floor slider takes from.
+  const sweepFloorOrder = useMemo(
+    () => listings.filter(isSweepable).sort((x, y) => x.priceSol - y.priceSol),
+    [listings, isSweepable],
+  );
+  const sweepRows = useMemo(
+    () => listings.filter(l => sweepSel.has(l.mint) && isSweepable(l)),
+    [listings, sweepSel, isSweepable],
+  );
+  const sweepTotalSol = sweepRows.reduce((acc, l) => acc + l.priceSol, 0);
+  const toggleSweep = useCallback((mint: string) => {
+    setSweepSel(prev => {
+      const next = new Set(prev);
+      if (next.has(mint)) next.delete(mint); else next.add(mint);
+      return next;
+    });
+  }, []);
+  const applyFloorSweep = (n: number) => {
+    setSweepN(n);
+    setSweepSel(new Set(sweepFloorOrder.slice(0, n).map(l => l.mint)));
+  };
+
+  const onBuyAll = async () => {
+    if (!walletPubkey || sweepStage !== 'idle' || sweepRows.length === 0) return;
+    const buyer = walletPubkey;
+    const rows = sweepRows;
+    setSweepStage('building');
+    setBuyStatuses(prev => {
+      const next = { ...prev };
+      for (const l of rows) next[l.mint] = { kind: 'busy', step: 'preparing' };
+      return next;
+    });
+    // Build with a small concurrency cap — ME/Tensor upstreams rate-limit.
+    const built: { l: ListingRow; tx: string }[] = [];
+    let cursor = 0;
+    await Promise.all(Array.from({ length: Math.min(SWEEP_BUILD_CONCURRENCY, rows.length) }, async () => {
+      while (cursor < rows.length) {
+        const l = rows[cursor++];
+        try {
+          built.push({ l, tx: await buildBuyTx(l, buyer) });
+        } catch (err) {
+          const message = (err as Error).message ?? String(err);
+          setBuyStatuses(prev => ({ ...prev, [l.mint]: { kind: 'error', message } }));
+        }
+      }
+    }));
+    if (built.length === 0) { setSweepStage('idle'); return; }
+
+    setSweepStage('signing');
+    setBuyStatuses(prev => {
+      const next = { ...prev };
+      for (const b of built) next[b.l.mint] = { kind: 'busy', step: 'signing' };
+      return next;
+    });
+    const sent = new Set<string>();
+    try {
+      await signAllMixedAndSend(
+        built.map(b => b.tx),
+        (i, signature) => {
+          if (i === 0) setSweepStage('sending');
+          const key = built[i].l.mint;
+          sent.add(key);
+          // eslint-disable-next-line no-console
+          console.log('[buy/sweep] sent', { mint: key, priceSol: built[i].l.priceSol, signature });
+          void confirmBuy(key, signature);
+        },
+        { sendPath: `${API_BASE}/api/buy/me/send`, expectWallet: buyer },
+      );
+    } catch (err) {
+      const message = (err as Error).message ?? String(err);
+      // eslint-disable-next-line no-console
+      console.warn('[buy/sweep] failed', message);
+      setBuyStatuses(prev => {
+        const next = { ...prev };
+        for (const b of built) if (!sent.has(b.l.mint)) next[b.l.mint] = { kind: 'error', message };
+        return next;
+      });
+    }
+    setSweepSel(new Set());
+    setSweepStage('idle');
+  };
 
   // ── Chart points (backend-derived; decoupled from TRADES buffer) ───────
   // Fetched per (slug, span) from /api/collections/chart so chart fidelity
@@ -1368,13 +1466,6 @@ export default function CollectionPage() {
     return best && listingsFloor != null && best.priceSol > listingsFloor ? best : null;
   };
 
-  // Live listings per seller (non-pool rows) → ×N badge on ListingCard.
-  const sellerListedCounts = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const l of listings) if (!l.poolKey) m.set(l.seller, (m.get(l.seller) ?? 0) + 1);
-    return m;
-  }, [listings]);
-
   const renderListing = (l: ListingRow, nested = false) => {
     const d = resolveNftDisplay({ nftName: l.nftName, mint: l.mint, imageUrl: l.imageUrl, stem: nameStem ?? (resolvedName ?? slug), imageByMint });
     const card = (
@@ -1393,12 +1484,14 @@ export default function CollectionPage() {
         abbr={headerAbbr}
         buy={listingBuyProps(l, buyStatuses[l.mint] ?? { kind: 'idle' }, !!walletPubkey, buyEnabled, onBuyListing)}
         onPreview={setPreview}
-        sellerListedCount={sellerListedCounts.get(l.seller) ?? 1}
-        topOffer={topOfferFor(l.mint)}
+        topOffer={nested ? null : topOfferFor(l.mint)}
+        selected={!nested && sweepSel.has(l.mint)}
+        onSelect={!nested && isSweepable(l) ? toggleSweep : undefined}
+        poolMember={nested}
         isNew={l.listedAt != null && l.listedAt > pageOpenedAtRef.current}
       />
     );
-    return nested ? <div key={`${l.id}:${l.priceSol}`} style={{ paddingLeft: 14 }}>{card}</div> : card;
+    return nested ? <div key={`${l.id}:${l.priceSol}`} className="pool-member-wrap">{card}</div> : card;
   };
 
   return (
@@ -1598,6 +1691,47 @@ export default function CollectionPage() {
             </div>
           )}
 
+          {/* Sweep bar: floor slider (2 per tick) + BUY ALL once anything is selected. */}
+          <div className="sweep-bar">
+            <span className="sweep-bar-label">SWEEP</span>
+            <input
+              type="range"
+              min={SWEEP_STEP}
+              max={SWEEP_MAX}
+              step={SWEEP_STEP}
+              list="sweep-ticks"
+              value={sweepN}
+              onChange={(e) => applyFloorSweep(Number(e.target.value))}
+              // Click on the resting thumb (no drag) still applies the value.
+              onPointerUp={(e) => applyFloorSweep(Number((e.target as HTMLInputElement).value))}
+              disabled={sweepFloorOrder.length === 0 || sweepStage !== 'idle'}
+              aria-label="Select the N cheapest listings"
+              title={`Select the ${Math.min(sweepN, sweepFloorOrder.length)} cheapest listings`}
+              className="sweep-slider"
+              style={{ '--fill': `${((sweepN - SWEEP_STEP) / (SWEEP_MAX - SWEEP_STEP)) * 100}%` } as React.CSSProperties}
+            />
+            <datalist id="sweep-ticks">
+              {SWEEP_TICKS.map(v => <option key={v} value={v} />)}
+            </datalist>
+            <span className="sweep-bar-n">{Math.min(sweepN, sweepFloorOrder.length)}</span>
+            <div style={{ flex: 1 }} />
+            {sweepRows.length > 0 && sweepStage === 'idle' && (
+              <button className="sweep-clear" onClick={() => setSweepSel(new Set())} title="Clear selection">✕</button>
+            )}
+            {(sweepRows.length > 0 || sweepStage !== 'idle') && (
+              <button
+                className="sweep-buy-all"
+                onClick={onBuyAll}
+                disabled={!walletPubkey || sweepStage !== 'idle' || (sweepRows.some(l => l.marketplace === 'me') && buyEnabled !== true)}
+                title={!walletPubkey ? 'Connect Phantom to buy' : `Buy ${sweepRows.length} NFTs for ${formatSol(sweepTotalSol)} SOL — one Phantom approval`}>
+                {sweepStage === 'building' ? 'Preparing…'
+                  : sweepStage === 'signing' ? 'Sign in Phantom…'
+                  : sweepStage === 'sending' ? 'Sending…'
+                  : <>BUY ALL <span className="sweep-buy-all-n">{sweepRows.length}</span> · {formatSol(sweepTotalSol)} SOL</>}
+              </button>
+            )}
+          </div>
+
           <div
             style={{ flex:1, overflowY:'auto' }}
             className="scroll-area"
@@ -1619,13 +1753,12 @@ export default function CollectionPage() {
                 if (it.kind === 'row') return renderListing(it.l);
                 const open = openPools.has(it.poolKey);
                 return (
-                  <Fragment key={`pool:${it.poolKey}`}>
+                  <div key={`pool:${it.poolKey}`} className={`pool-group${open ? ' is-open' : ''}`}>
                     <PoolGroupCard
                       poolKey={it.poolKey}
                       count={it.rows.length}
                       priceSol={it.rows[0].priceSol}
                       imageUrls={it.rows.slice(0, 3).map(r => imageByMint.get(r.mint) ?? r.imageUrl)}
-                      floor={listingsFloor}
                       color={headerColor}
                       abbr={headerAbbr}
                       expanded={open}
@@ -1637,7 +1770,7 @@ export default function CollectionPage() {
                       })}
                     />
                     {open && it.rows.map(r => renderListing(r, true))}
-                  </Fragment>
+                  </div>
                 );
               })}
             </div>
@@ -1754,6 +1887,7 @@ export default function CollectionPage() {
                   isNewestSellForSellerColl={false}
                   density="compact"
                   numOnly
+                  thumbBorderColor="rgb(245, 88, 102)"
                 />
               ))}
             </div>

@@ -336,3 +336,40 @@ export async function signAllVersionedAndSend(
   }
   return signatures;
 }
+
+/**
+ * Mixed legacy/versioned counterpart of `signAllAndSend` — each tx's wire
+ * format is sniffed like `signSendAndConfirm` does, all are signed with ONE
+ * Phantom approval, then broadcast sequentially. Built for the /collection
+ * sweep, where ME buy_now and our Tensor builder can return either format.
+ */
+export async function signAllMixedAndSend(
+  txBase64List: string[],
+  onSubmitted?: (index: number, signature: string) => void,
+  opts: { sendPath?: string; expectWallet?: string } = {},
+): Promise<string[]> {
+  const sol = getPhantom();
+  if (!sol) throw new Error('Phantom wallet not connected.');
+  if (opts.expectWallet) assertPhantomWallet(opts.expectWallet);
+
+  const txs: (Transaction | VersionedTransaction)[] = txBase64List.map((b64) => {
+    const raw = Buffer.from(b64, 'base64');
+    try {
+      const v = VersionedTransaction.deserialize(raw);
+      if (v.version !== 'legacy') return v;
+    } catch { /* legacy wire format */ }
+    return Transaction.from(raw);
+  });
+  console.log(TAG, `signAllTransactions (mixed): signing ${txs.length} txs with one approval...`);
+  const signed = await sol.signAllTransactions(txs);
+
+  const signatures: string[] = [];
+  for (let i = 0; i < signed.length; i++) {
+    const s = signed[i];
+    const serialized = s instanceof VersionedTransaction ? s.serialize() : (s as Transaction).serialize();
+    const signature = await backendSendRaw(serialized, opts.sendPath);
+    signatures.push(signature);
+    onSubmitted?.(i, signature);
+  }
+  return signatures;
+}

@@ -573,6 +573,7 @@ export const FeedCard = memo(function FeedCard({
   snsDomainAuto = false,
   crossHighlighted = false,
   numOnly = false,
+  thumbBorderColor,
 }: FeedCardProps) {
   // Thumb size is the only density-driven inline value — every other
   // delta lives in CSS via the `.feed-density-X` parent class. TAPE
@@ -674,7 +675,7 @@ export const FeedCard = memo(function FeedCard({
   // No / dead NFT image → collection icon (same source as /dashboard).
   const collIconImg    = compressImage(useCollectionIcon(event.meCollectionSlug));
   const previewImg     = compressImage(event.imageUrl, 256);
-  const nftBorderColor = getNftBorderColor(event.nftType);
+  const nftBorderColor = thumbBorderColor ?? getNftBorderColor(event.nftType);
   const handleThumbClick = () => { if (previewImg) onPreview(previewImg); };
 
   return (
@@ -1031,11 +1032,22 @@ export interface ListingCardBuy {
   onClick:  () => void;
 }
 
+const LISTING_THUMB_FRAME_STYLE: React.CSSProperties = {
+  position: 'absolute', inset: 0, borderRadius: 6, pointerEvents: 'none',
+  border: '1px solid rgb(64, 212, 168)', boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.45)',
+};
+const LISTING_OFFER_BADGE_STYLE: React.CSSProperties = {
+  ...SELLER_REMAINING_BADGE_STYLE,
+  marginLeft: 4, gap: 4, padding: '0 6px', height: 17,
+  background: alpha(VL.gold, ALPHA.glowSoft), border: `1px solid ${alpha(VL.gold, ALPHA.glow)}`,
+  fontSize: 10.5, fontWeight: 800,
+};
+
 const seenListingIds = new Set<string>();
 
 export const ListingCard = memo(function ListingCard({
-  listing, floor, color, abbr, buy, onPreview, isNew = false, snsDomainAuto = false, fallbackImageUrl = null,
-  sellerListedCount = 1, topOffer,
+  listing, color, abbr, buy, onPreview, isNew = false, snsDomainAuto = false, fallbackImageUrl = null,
+  topOffer, poolMember = false, selected = false, onSelect,
 }: {
   listing:   ListingCardData;
   floor:     number | null;
@@ -1048,10 +1060,14 @@ export const ListingCard = memo(function ListingCard({
   snsDomainAuto?: boolean;
   /** Collection icon shown when the NFT has no / a dead image. */
   fallbackImageUrl?: string | null;
-  /** How many of this collection's current listings this seller has. */
-  sellerListedCount?: number;
   /** Best offer above floor; null = none; undefined = not loaded yet. */
   topOffer?: { priceSol: number; src: 'ME' | 'TENSOR' } | null;
+  /** Row is one NFT of an expanded MMM pool (rendered under PoolGroupCard). */
+  poolMember?: boolean;
+  /** Picked for the sweep (BUY ALL). */
+  selected?: boolean;
+  /** Card click toggles sweep selection; absent = not selectable. */
+  onSelect?: (mint: string) => void;
 }) {
   const [flash, setFlash] = useState(isNew);
   useEffect(() => {
@@ -1073,28 +1089,33 @@ export const ListingCard = memo(function ListingCard({
   const ts = listing.listedAt;
   const ageMin = ts != null ? (Date.now() - ts) / 60_000 : Infinity;
   const ageBucket = ageMin < 2 ? 'fresh' : ageMin < 5 ? 'mid' : 'old';
-  const floorDelta = floor != null && floor > 0 && listing.priceSol > 0 ? (listing.priceSol - floor) / floor : null;
   const thumbImg   = compressImage(listing.imageUrl);
   const previewImg = compressImage(listing.imageUrl, 256);
   const priceStr = formatFeedPrice(listing.priceSol);
-  const priceFontSize = priceStr.length <= 4 ? 17.5 : priceStr.length === 5 ? 15 : 13.5;
+  const priceFontSize = priceStr.length <= 4 ? 19.5 : priceStr.length === 5 ? 17 : 15;
   const itemHref = listing.marketplace === 'tensor'
     ? `https://www.tensor.trade/item/${listing.mint}`
     : `https://magiceden.io/item-details/${listing.mint}`;
-  const pill = KIND_STYLES.buy;
-  const tagColor  = buy.errored ? rgb(VL.redStrong) : pill.fg;
-  const tagBg     = buy.errored ? alpha(VL.redStrong, ALPHA.tint) : pill.bg;
-  const tagBorder = buy.errored ? alpha(VL.redStrong, ALPHA.borderStrong) : alpha(VL.greenStrong, ALPHA.borderStrong);
+  const buyLive = !buy.disabled || buy.busy;
 
   return (
     <div className={`feed-row-wrap${isCached ? ' feed-row-wrap-cached' : ''}${flash ? ' new-listing' : ''}`}>
-      <div className="feed-card listing-card" data-event-ts={ts ?? undefined} data-age-bucket={ageBucket}>
+      <div className={`feed-card listing-card${poolMember ? ' pool-member' : ''}${selected ? ' is-selected' : ''}${onSelect ? ' is-selectable' : ''}`}
+        data-event-ts={ts ?? undefined} data-age-bucket={ageBucket}
+        onClick={onSelect ? (e) => {
+          // Links / buttons inside the card keep their own action.
+          if ((e.target as HTMLElement).closest('a,button')) return;
+          onSelect(listing.mint);
+        } : undefined}>
         <div className="feed-thumb"
-          onClick={() => { if (previewImg) onPreview(previewImg); }}
+          onClick={(e) => { if (!previewImg) return; e.stopPropagation(); onPreview(previewImg); }}
           style={{ cursor: thumbImg ? 'pointer' : 'default', position: 'relative' }}>
           <div draggable={false} style={FC_THUMB_INNER_STYLE}>
             <ItemThumb imageUrl={thumbImg} fallbackImageUrl={compressImage(fallbackImageUrl)} color={color} abbr={abbr} size={56} />
           </div>
+          {/* /collection frames by pane (listings green, trades red), not NFT type. */}
+          <span aria-hidden style={LISTING_THUMB_FRAME_STYLE} />
+          {selected && <span aria-hidden className="sweep-check">✓</span>}
         </div>
 
         <div style={FC_MIDDLE_COL_STYLE}>
@@ -1111,37 +1132,24 @@ export const ListingCard = memo(function ListingCard({
             </a>
             <RarityRankBadge rarityRank={listing.rarityRank ?? null} totalSupply={listing.totalSupply ?? null} />
           </div>
-          {/* FeedCard's party block: seller, then the top offer (in FeedCard's
-              buyer slot — the would-be buyer if this listing sold now). */}
           <div style={FC_PARTIES_COL_STYLE}>
-            <div style={FC_PARTY_ROW_STYLE}>
-              <span className="fc-party-label" style={FC_PARTY_LABEL_STYLE}>seller:</span>
-              <WalletLink wallet={listing.seller} snsDomainAuto={snsDomainAuto} />
-              {/* Same micro-badge as FeedCard's seller-remaining count: here
-                  it's how many of this collection's live listings are the
-                  seller's (a wall / dumper tell). Only when ≥ 2. */}
-              {sellerListedCount >= 2 && (
-                <span className="seller-remaining-badge" style={SELLER_REMAINING_BADGE_STYLE}
-                  title={`${sellerListedCount} listings by this seller`}>
-                  <span className="seller-remaining-badge-num">{Math.min(99, sellerListedCount)}</span>
+            <div style={{ ...FC_PARTY_ROW_STYLE, fontSize: 12 }}>
+              {poolMember ? (
+                <span className="pool-member-tag"><span aria-hidden="true">{AMM_SYMBOL}</span> in AMM pool</span>
+              ) : (<>
+                <span className="fc-party-label" style={FC_PARTY_LABEL_STYLE}>seller:</span>
+                <WalletLink wallet={listing.seller} snsDomainAuto={snsDomainAuto} />
+              </>)}
+              {/* Best offer above floor — only when one exists. */}
+              {topOffer && (
+                <span style={LISTING_OFFER_BADGE_STYLE} title={`Top offer ${formatFeedPrice(topOffer.priceSol)} SOL (${topOffer.src === 'TENSOR' ? 'Tensor' : 'Magic Eden'})`}>
+                  offer {formatFeedPrice(topOffer.priceSol)}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={topOffer.src === 'TENSOR' ? '/brand/tensor.png' : '/brand/me.png'} alt={topOffer.src} width={11} height={11}
+                    draggable={false} style={{ display: 'block', borderRadius: 2, flexShrink: 0 }} />
                 </span>
               )}
             </div>
-            {topOffer !== undefined && (
-              <div style={FC_PARTY_ROW_STYLE}>
-                <span className="fc-party-label" style={FC_PARTY_LABEL_STYLE}>offer:</span>
-                {topOffer ? (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
-                    <span style={{ ...WALLET_LINK_STYLE, fontVariantNumeric: 'tabular-nums' }}>{formatFeedPrice(topOffer.priceSol)}</span>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={topOffer.src === 'TENSOR' ? '/brand/tensor.png' : '/brand/me.png'} alt={topOffer.src} width={13} height={13}
-                      draggable={false} style={{ display: 'block', borderRadius: 2, opacity: 0.85, flexShrink: 0 }} />
-                  </span>
-                ) : (
-                  <span style={{ color: 'var(--fc-label, ' + VLText.faint + ')' }}>none</span>
-                )}
-              </div>
-            )}
           </div>
         </div>
 
@@ -1153,22 +1161,19 @@ export const ListingCard = memo(function ListingCard({
             </span>
           </div>
           <div className="feed-price-row" style={FC_PRICE_ROW_STYLE}>
-            {floorDelta != null && Math.abs(floorDelta) >= 0.005 && <FloorChip delta={floorDelta} />}
-            <button
+            {/* Filled BUY NOW. The card body around it is inert (no click
+                handler), so a near-miss does nothing; the button itself only
+                fires on a full press+release inside it. */}
+            {poolMember ? (
+              <span className="pool-member-pill" title="Pool NFT — every NFT in this pool costs the pool's next-buy price">
+                <span aria-hidden="true">{AMM_SYMBOL}</span>AMM
+              </span>
+            ) : <button
+              className={`listing-buy-btn${buy.errored ? ' is-error' : ''}${buyLive ? '' : ' is-off'}`}
               onClick={(e) => { e.stopPropagation(); if (!buy.disabled) buy.onClick(); }}
               disabled={buy.disabled}
-              title={buy.title}
-              style={{
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                width: 52, height: 20, boxSizing: 'border-box', flexShrink: 0,
-                borderRadius: 5, fontSize: 10, fontWeight: 800, lineHeight: 1,
-                letterSpacing: '0.2px', textTransform: 'uppercase',
-                background: tagBg, color: tagColor, border: `1px solid ${tagBorder}`,
-                cursor: buy.disabled ? 'default' : 'pointer',
-                opacity: buy.disabled && !buy.busy ? 0.55 : 1,
-                padding: 0,
-              }}>{buy.label}</button>
-            <span className="fc-price" style={{ ...FC_PRICE_TEXT_STYLE, fontSize: priceFontSize }}>
+              title={buy.title}>{buy.label === 'BUY' ? 'BUY NOW' : buy.label}</button>}
+            <span className="fc-price" style={{ ...FC_PRICE_TEXT_STYLE, minWidth: 0, width: 80, flexShrink: 0, whiteSpace: 'nowrap', fontSize: priceFontSize }}>
               {priceStr}{' '}<span style={FC_PRICE_SUFFIX_STYLE}>SOL</span>
             </span>
           </div>
@@ -1182,14 +1187,13 @@ export const ListingCard = memo(function ListingCard({
  *  Tensor), click toggles the pool's NFTs underneath. Every NFT in a pool
  *  costs the same next-buy price, so the row shows that single price. */
 export const PoolGroupCard = memo(function PoolGroupCard({
-  poolKey, count, priceSol, imageUrls, floor, color, abbr, expanded, onToggle, fallbackImageUrl = null,
+  poolKey, count, priceSol, imageUrls, color, abbr, expanded, onToggle, fallbackImageUrl = null,
 }: {
   poolKey:   string;
   count:     number;
   priceSol:  number;
   /** Up to 3 NFT thumbnails from the pool. */
   imageUrls: (string | null)[];
-  floor:     number | null;
   color:     string;
   abbr:      string;
   expanded:  boolean;
@@ -1197,8 +1201,7 @@ export const PoolGroupCard = memo(function PoolGroupCard({
   fallbackImageUrl?: string | null;
 }) {
   const priceStr = formatFeedPrice(priceSol);
-  const priceFontSize = priceStr.length <= 4 ? 17.5 : priceStr.length === 5 ? 15 : 13.5;
-  const floorDelta = floor != null && floor > 0 && priceSol > 0 ? (priceSol - floor) / floor : null;
+  const priceFontSize = priceStr.length <= 4 ? 19.5 : priceStr.length === 5 ? 17 : 15;
   const pill = KIND_STYLES.buy;
   return (
     <div className="feed-row-wrap feed-row-wrap-cached">
@@ -1245,8 +1248,7 @@ export const PoolGroupCard = memo(function PoolGroupCard({
             </span>
           </div>
           <div className="feed-price-row" style={FC_PRICE_ROW_STYLE}>
-            {floorDelta != null && Math.abs(floorDelta) >= 0.005 && <FloorChip delta={floorDelta} />}
-            <span className="fc-price" style={{ ...FC_PRICE_TEXT_STYLE, fontSize: priceFontSize }}>
+            <span className="fc-price" style={{ ...FC_PRICE_TEXT_STYLE, minWidth: 0, width: 80, flexShrink: 0, whiteSpace: 'nowrap', fontSize: priceFontSize }}>
               {priceStr}{' '}<span style={FC_PRICE_SUFFIX_STYLE}>SOL</span>
             </span>
           </div>

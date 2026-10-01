@@ -94,4 +94,6 @@ export interface FeedCardProps {
   crossHighlighted?: boolean;
   /** Render only `#num` in the name (single-collection views). */
   numOnly?: boolean;
+  /** Overrides the NFT-type thumb frame colour (/collection: trades = red). */
+  thumbBorderColor?: string;
 }

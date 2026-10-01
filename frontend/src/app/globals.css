@@ -1041,6 +1041,144 @@ a { color: inherit; text-decoration: none; }
 .feed-card.listing-card::before { left: -2px; }
 .feed-card.listing-card::after  { right: -2px; }
 
+/* /collection panes: hover only lights the frame, no lift/scale. */
+.coll-feed .feed-row-wrap:hover > .feed-card { transform: none; }
+
+/* Expanded MMM pool: header + its NFTs boxed together in a dashed
+   green frame; member rows are indented, dashed, and carry an AMM pill
+   instead of BUY NOW, so they can't be mistaken for normal listings. */
+.pool-group.is-open {
+  border: 1px dashed rgb(var(--vl-green-strong) / 0.38);
+  border-radius: 10px;
+  background: rgb(var(--vl-green-strong) / 0.025);
+  padding-bottom: 4px;
+  margin: 2px 0 6px;
+}
+.pool-member-wrap { padding-left: 16px; position: relative; }
+.pool-member-wrap::before {
+  content: ''; position: absolute; left: 9px; top: 0; bottom: 0; width: 1px;
+  background: rgb(var(--vl-green-strong) / 0.35);
+}
+.feed-card.listing-card.pool-member {
+  border-left: 1px dashed rgb(var(--vl-green-strong) / 0.45);
+  border-right: 1px dashed rgb(var(--vl-green-strong) / 0.45);
+  background: rgb(var(--vl-green-strong) / 0.035);
+}
+.feed-card.listing-card.pool-member::before,
+.feed-card.listing-card.pool-member::after { display: none; }
+.pool-member-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  color: rgb(var(--vl-green-strong) / 0.85); font-weight: 700; font-size: 11px;
+}
+.pool-member-pill {
+  display: inline-flex; align-items: center; justify-content: center; gap: 3px;
+  height: 24px; min-width: 68px; padding: 0 8px; margin-left: 2px; box-sizing: border-box; flex-shrink: 0;
+  border-radius: 6px; border: 1px dashed rgb(var(--vl-green-strong) / 0.6);
+  background: rgb(var(--vl-green-strong) / 0.10); color: rgb(var(--vl-green-strong));
+  font-size: 11px; font-weight: 800; line-height: 1; letter-spacing: 0.3px;
+}
+
+/* Sweep selection: card click toggles; selected = solid green frame + ✓. */
+.feed-card.listing-card.is-selectable { cursor: pointer; }
+.feed-card.listing-card.is-selected {
+  background: rgb(var(--vl-green-strong) / 0.10);
+  border-color: rgb(var(--vl-green-strong) / 0.85);
+  box-shadow: 0 0 0 1px rgb(var(--vl-green-strong) / 0.85) inset, 0 0 12px rgb(var(--vl-green-strong) / 0.18);
+}
+.feed-card.listing-card.is-selected::before,
+.feed-card.listing-card.is-selected::after { background: rgb(64, 212, 168); box-shadow: 0 0 4px rgba(64, 212, 168, 0.45); }
+.sweep-check {
+  position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; pointer-events: none;
+  background: rgb(var(--vl-green-strong)); color: #04140e; font-size: 10px; font-weight: 900;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+/* Sweep bar (listings pane, above the list). */
+.sweep-bar {
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+  min-height: 40px; padding: 6px 8px; box-sizing: border-box;
+  border-bottom: 1px solid rgb(var(--vl-purple-tint) / 0.12);
+  background: rgb(var(--vl-green-strong) / 0.025);
+}
+.sweep-bar-label { font-size: 10px; font-weight: 800; letter-spacing: 0.6px; color: var(--vl-text-muted); }
+.sweep-bar-n {
+  width: 20px; text-align: right; font-family: 'SF Mono','Fira Code',monospace;
+  font-size: 12px; font-weight: 700; color: var(--vl-text-primary);
+}
+.sweep-slider {
+  --fill: 0%;
+  appearance: none; -webkit-appearance: none;
+  width: 140px; min-width: 80px; flex-shrink: 1; height: 20px;
+  background: transparent; cursor: pointer;
+}
+.sweep-slider:disabled { opacity: 0.4; cursor: not-allowed; }
+.sweep-slider::-webkit-slider-runnable-track {
+  height: 6px; border-radius: 3px; border: 1.5px solid rgb(var(--vl-purple-tint) / 0.28);
+  background: linear-gradient(to right, rgb(var(--vl-green-strong)) var(--fill), rgba(0, 0, 0, 0.3) var(--fill));
+}
+.sweep-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border-radius: 50%;
+  background: rgb(var(--vl-green-strong)); border: 2px solid #0b1a14;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45); transition: transform 120ms ease;
+}
+.sweep-slider:hover::-webkit-slider-thumb { transform: scale(1.1); }
+.sweep-slider::-moz-range-track { height: 6px; border-radius: 3px; border: 1.5px solid rgb(var(--vl-purple-tint) / 0.28); background: rgba(0, 0, 0, 0.3); }
+.sweep-slider::-moz-range-progress { height: 6px; border-radius: 3px 0 0 3px; background: rgb(var(--vl-green-strong)); }
+.sweep-slider::-moz-range-thumb {
+  width: 16px; height: 16px; border-radius: 50%; background: rgb(var(--vl-green-strong));
+  border: 2px solid #0b1a14; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45); cursor: pointer;
+}
+.sweep-clear {
+  width: 26px; height: 26px; border-radius: 6px; flex-shrink: 0; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.10); background: rgba(255, 255, 255, 0.04);
+  color: var(--vl-text-muted); font-size: 11px;
+}
+.sweep-clear:hover { color: var(--vl-text-primary); background: rgba(255, 255, 255, 0.08); }
+.sweep-buy-all {
+  height: 30px; padding: 0 14px; border-radius: 7px; flex-shrink: 0; cursor: pointer;
+  border: 1px solid rgb(var(--vl-green-strong)); background: rgb(var(--vl-green-strong) / 0.92);
+  color: #04140e; font-size: 12.5px; font-weight: 800; letter-spacing: 0.3px; white-space: nowrap;
+  box-shadow: 0 2px 12px rgb(var(--vl-green-strong) / 0.30);
+  animation: sweepBuyIn 160ms ease-out;
+  transition: background 120ms ease, box-shadow 120ms ease, transform 80ms ease;
+}
+.sweep-buy-all:hover:not(:disabled) { background: rgb(var(--vl-green-strong)); box-shadow: 0 2px 16px rgb(var(--vl-green-strong) / 0.45); }
+.sweep-buy-all:active:not(:disabled) { transform: scale(0.97); }
+.sweep-buy-all:disabled { cursor: default; opacity: 0.6; }
+.sweep-buy-all-n {
+  display: inline-block; min-width: 18px; padding: 1px 5px; margin: 0 1px; border-radius: 999px;
+  background: rgba(4, 20, 14, 0.85); color: rgb(var(--vl-green-strong)); font-size: 11px;
+}
+@keyframes sweepBuyIn { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: scale(1); } }
+
+/* Listings pane BUY NOW — solid green fill so it's the obvious action,
+   dark text keeps it from glaring. Muted fill when unavailable. */
+.listing-buy-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 24px; min-width: 68px; padding: 0 8px; margin-left: 2px;
+  box-sizing: border-box; flex-shrink: 0;
+  border-radius: 6px; border: 1px solid rgb(var(--vl-green-strong) / 0.9);
+  background: rgb(var(--vl-green-strong) / 0.88); color: #04140e;
+  font-size: 11px; font-weight: 800; line-height: 1; letter-spacing: 0.4px;
+  text-transform: uppercase; white-space: nowrap; cursor: pointer;
+  box-shadow: 0 1px 6px rgb(var(--vl-green-strong) / 0.22);
+  transition: background 120ms ease, box-shadow 120ms ease, transform 80ms ease;
+}
+.listing-buy-btn:hover:not(:disabled) {
+  background: rgb(var(--vl-green-strong)); box-shadow: 0 1px 10px rgb(var(--vl-green-strong) / 0.38);
+}
+.listing-buy-btn:active:not(:disabled) { transform: scale(0.96); }
+.listing-buy-btn:disabled { cursor: default; }
+.listing-buy-btn.is-off {
+  background: rgb(var(--vl-green-strong) / 0.16); border-color: rgb(var(--vl-green-strong) / 0.28);
+  color: rgb(var(--vl-green-strong) / 0.75); box-shadow: none;
+}
+.listing-buy-btn.is-error {
+  background: rgb(var(--vl-red-strong) / 0.85); border-color: rgb(var(--vl-red-strong)); color: #1a0508;
+  box-shadow: none;
+}
+
 
 /* /collection LISTINGS + TRADES panes only: lift the tertiary
    `seller:` / `buyer:` / `pool:` labels (FeedCard's
@@ -1057,6 +1195,10 @@ a { color: inherit; text-decoration: none; }
    (≤330 px). Name, wallets, action and price always stay. */
 @container (max-width: 370px) {
   .coll-feed .fc-party-label { display: none !important; }
+}
+/* Listings: BUY NOW is wider than a sale pill — drop `seller:` sooner. */
+@container (max-width: 430px) {
+  .coll-feed .listing-card .fc-party-label { display: none !important; }
 }
 @container (max-width: 330px) {
   .coll-feed .fc-floor-chip { display: none !important; }
