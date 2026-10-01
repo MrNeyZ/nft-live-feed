@@ -174,22 +174,28 @@ export function createTrendingCollectionsRouter(): Router {
         const meSlugs = new Set(meCollections.map(c => c.slug));
         const internal = await getInternalTrendingStats(is5m ? '5m' : query.range);
 
-        if (is5m) {
-          // Override the window-scoped activity fields with a true 5-minute
-          // recompute, then DROP any row that recomputes to zero — ME's 10m
-          // list carries rows whose only sale was in minutes 5-10, which
-          // have nothing to show inside the true 5m window and would
-          // otherwise linger in the list forever with a permanent "0"
-          // (they only age out of ME's own 10m response after a full 10
-          // minutes, not 5). Floor is a point-in-time snapshot, not
-          // window-scoped, so ME's own value stays as-is on the rows that
-          // do survive (the frontend already overlays the real floor from
-          // /collections/bids regardless of range).
+        // ME's collection_stats window aggregation for short live windows
+        // (5m/10m/1h) has been observed straight-up frozen/wrong per-slug —
+        // e.g. g00bs reporting txns=76 for window=1h while ME's own
+        // activities feed (ground truth on-chain blockTime) shows zero sales
+        // AND zero activity of any kind in that hour. Our own listener is a
+        // continuous on-chain read (logsSubscribe, not polled) and a strict
+        // superset of what ME sees, so for these ranges it's fully caught up
+        // and authoritative — trust it exclusively instead of ME, same as
+        // the 5m override already did, and drop rows that recompute to zero
+        // (that's what "cuts" a frozen/bugged ME row out of the list).
+        const isShortLiveRange = is5m || rangeRaw === '10m' || rangeRaw === '1h';
+
+        if (isShortLiveRange) {
+          // Floor is a point-in-time snapshot, not window-scoped, so ME's
+          // own value stays as-is on the rows that survive (the frontend
+          // already overlays the real floor from /collections/bids
+          // regardless of range).
           const internalBySlug = new Map(internal.map(c => [c.slug, c]));
           collections = meCollections
             .map(c => {
               const i = internalBySlug.get(c.slug);
-              return { ...c, salesCount: i?.salesCount ?? 0, volumeSol: i?.volumeSol ?? 0, range: '5m' };
+              return { ...c, salesCount: i?.salesCount ?? 0, volumeSol: i?.volumeSol ?? 0, range: rangeRaw };
             })
             .filter(c => (c.salesCount ?? 0) > 0);
           const supplement = internal.filter(c => !meSlugs.has(c.slug));
