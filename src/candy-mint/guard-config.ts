@@ -42,7 +42,7 @@ import {
 } from '@metaplex-foundation/mpl-candy-machine';
 import { mergeGuardSets } from './guard-merge';
 import type { CandyMintFamily } from './decode';
-import { adapterFor } from './cosigned';
+import { adapterFor, burnFor } from './cosigned';
 
 function rpcUrl(): string {
   const key = process.env.HELIUS_API_KEY;
@@ -427,7 +427,10 @@ function applyCosignerAdapters(
     g.cosigner = {
       adapter: adapter.id,
       signerKey: adapter.signerKey,
-      burn: adapter.burn ? { mint: adapter.burn.mint, amount: adapter.burn.amount.toString(), decimals: adapter.burn.decimals } : null,
+      burn: (() => {
+        const b = burnFor(adapter, g.label);
+        return b ? { mint: b.mint, amount: b.amount.toString(), decimals: b.decimals } : null;
+      })(),
     };
   }
 }

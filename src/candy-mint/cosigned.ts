@@ -39,14 +39,24 @@ export interface CosignerAdapter {
   maxComputeUnitPrice: number;
   /** A per-asset Token-2022 BurnChecked the project's frontend prepends. */
   burn: { mint: string; amount: bigint; decimals: number } | null;
+  /** Per-group burn amount override (raw atoms); default = burn.amount. */
+  burnAmountByGroup?: Record<string, bigint>;
+}
+
+/** The burn the adapter's server expects for this group (null = none). */
+export function burnFor(adapter: Pick<CosignerAdapter, 'burn' | 'burnAmountByGroup'>, group: string | null): CosignerAdapter['burn'] {
+  if (!adapter.burn) return null;
+  const amount = (group != null ? adapter.burnAmountByGroup?.[group] : undefined) ?? adapter.burn.amount;
+  return { ...adapter.burn, amount };
 }
 
 // printerotc.fun — mint.js `vC()` (route "metaplex-core-cosigned-token2022-v1").
-// Per asset: [BurnChecked 100,000 PRINTER (token-2022, owner ATA), MintV1
-// group "normal" w/ solPayment + thirdPartySigner]. Their validator `Vv()`
-// accepts only group "normal" or the no-group default (both 0.5 SOL); the
-// cheaper wheel groups (w0xx/f0xx) exist on-chain but their server won't sign
-// them.
+// Per asset: [BurnChecked PRINTER (token-2022, owner ATA), MintV1 group w/
+// solPayment + thirdPartySigner]. "normal" = 0.5 SOL + 100k burn (mint.js
+// `Vv()`). f0xx groups: every landed f010/f015/f020 mint (2026-10-01) burns
+// 10k with the identical layout — enabled on that evidence; NOT yet confirmed
+// that /api/mint/sign (vs the fire-sale flow) cosigns them. A refusal is safe:
+// nothing is broadcast. w0xx: no landed mint seen, left off.
 export const COSIGNER_ADAPTERS: Record<string, CosignerAdapter> = {
   DaprcA3JKHFeoMN1PdXGgDTtU6YHNeiNz51kWJQ3NZqX: {
     id: 'printerotc',
@@ -54,10 +64,11 @@ export const COSIGNER_ADAPTERS: Record<string, CosignerAdapter> = {
     candyMachine: 'CVWE9UzXbXmpQjZVAiRLTJoyhhfYZwuUkgbyqYe68gmw',
     collection: 'E2cjysGtVPjDiL7RtfkyTgou8g2vRRfgkh4JtWtopJoA',
     signUrl: 'https://printerotc.fun/api/mint/sign',
-    signableGroups: ['normal', null],
+    signableGroups: ['normal', null, 'f010', 'f015', 'f020', 'f025', 'f045'],
     computeUnitLimit: 800_000,
     maxComputeUnitPrice: 250_000,
     burn: { mint: '3e6to4qrHByU19Sij9DVKPB4AQD5RuyhH2Sj2ESLpump', amount: 100_000_000_000n, decimals: 6 },
+    burnAmountByGroup: { f010: 10_000_000_000n, f015: 10_000_000_000n, f020: 10_000_000_000n, f025: 10_000_000_000n, f045: 10_000_000_000n },
   },
 };
 
@@ -143,7 +154,8 @@ export async function buildCosignedTx(opts: {
     ComputeBudgetProgram.setComputeUnitLimit({ units: adapter.computeUnitLimit }),
     ComputeBudgetProgram.setComputeUnitPrice({ microLamports: opts.microLamports }),
   );
-  if (adapter.burn) tx.add(burnCheckedIx(owner, adapter.burn));
+  const burn = burnFor(adapter, opts.group);
+  if (burn) tx.add(burnCheckedIx(owner, burn));
   tx.add(...builder.getInstructions().map((ix) => toWeb3JsInstruction(ix)));
   tx.partialSign(Keypair.fromSecretKey(assetSigner.secretKey));
 

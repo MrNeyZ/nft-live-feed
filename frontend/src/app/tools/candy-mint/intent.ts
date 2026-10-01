@@ -73,13 +73,21 @@ export interface KnownCosigner {
   computeUnitLimit: number;
   maxComputeUnitPrice: number;
   burn: { mint: string; amount: bigint; decimals: number } | null;
+  burnAmountByGroup?: Record<string, bigint>;
 }
+export function knownCosignerBurn(c: KnownCosigner, group: string | null): KnownCosigner['burn'] {
+  if (!c.burn) return null;
+  const amount = (group != null ? c.burnAmountByGroup?.[group] : undefined) ?? c.burn.amount;
+  return { ...c.burn, amount };
+}
+const TEN_K_PRINTER = BigInt('10000000000');
 export const KNOWN_COSIGNERS: Record<string, KnownCosigner> = {
   DaprcA3JKHFeoMN1PdXGgDTtU6YHNeiNz51kWJQ3NZqX: {
     id: 'printerotc',
     computeUnitLimit: 800_000,
     maxComputeUnitPrice: 250_000,
     burn: { mint: '3e6to4qrHByU19Sij9DVKPB4AQD5RuyhH2Sj2ESLpump', amount: BigInt('100000000000'), decimals: 6 },
+    burnAmountByGroup: { f010: TEN_K_PRINTER, f015: TEN_K_PRINTER, f020: TEN_K_PRINTER, f025: TEN_K_PRINTER, f045: TEN_K_PRINTER },
   },
 };
 

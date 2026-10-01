@@ -54,7 +54,7 @@
 
 import { PublicKey, Transaction } from '@solana/web3.js';
 import type { FrozenMintIntent } from './intent';
-import { intentPaymentDestinations, KNOWN_COSIGNERS } from './intent';
+import { intentPaymentDestinations, KNOWN_COSIGNERS, knownCosignerBurn } from './intent';
 
 // ── program ids ───────────────────────────────────────────────────────────
 export const PROGRAMS = {
@@ -207,6 +207,7 @@ export function auditCandyMintTx(
   const cosigner = intent.cosigner ? KNOWN_COSIGNERS[intent.cosigner] ?? null : null;
   if (intent.cosigner && !cosigner) return fail('unknown cosigner in reviewed intent');
   const expectedUnitLimit = cosigner ? cosigner.computeUnitLimit : EXPECTED_COMPUTE_UNIT_LIMIT;
+  const expectedBurn = cosigner ? knownCosignerBurn(cosigner, intent.group) : null;
   let burnIdx = -1;
 
   const ixs = tx.instructions;
@@ -244,8 +245,8 @@ export function auditCandyMintTx(
       }
       continue;
     }
-    if (cosigner?.burn && pid === PROGRAMS.token2022 && guardIdx === -1 && burnIdx === -1) {
-      const err = checkCosignerBurn(ixs[i], intent.wallet, cosigner.burn);
+    if (expectedBurn && pid === PROGRAMS.token2022 && guardIdx === -1 && burnIdx === -1) {
+      const err = checkCosignerBurn(ixs[i], intent.wallet, expectedBurn);
       if (err) return fail(err);
       burnIdx = i;
       continue;
@@ -258,7 +259,7 @@ export function auditCandyMintTx(
     return fail(`unexpected top-level program ${pid.slice(0, 8)}… (only ComputeBudget + the ${intent.family} Candy Guard are allowed)`);
   }
   if (guardIdx === -1) return fail(`no ${intent.family} Candy Guard instruction found`);
-  if (cosigner?.burn && burnIdx === -1) return fail('cosigned mint is missing its required token burn');
+  if (expectedBurn && burnIdx === -1) return fail('cosigned mint is missing its required token burn');
   if (guardIdx !== ixs.length - 1) return fail('instructions present after the Candy Guard instruction');
 
   // 4 — belt-and-braces: no forbidden value-moving instruction anywhere at
