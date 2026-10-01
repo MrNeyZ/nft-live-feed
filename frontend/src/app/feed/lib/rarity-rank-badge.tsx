@@ -14,17 +14,17 @@
 // (Rare Feed); a Live Feed event below EPIC simply renders nothing.
 
 import type { CSSProperties } from 'react';
-import { VL, VLText, rgb } from '@/lib/palette';
+import { VL, VLText, rgb, alpha } from '@/lib/palette';
 
 /** Per-tier solid pill color + a subtle premium glow (no neon/bloom). */
-const TIER_STYLE: Record<string, { bg: string; glow: string }> = {
-  MYTHIC:     { bg: '#ef5b97', glow: '0 0 10px rgba(239, 91, 151, 0.22)' },
-  LEGENDARY:  { bg: '#e1a63a', glow: '0 0 8px rgba(225, 166, 58, 0.20)' },
+export const TIER_STYLE: Record<string, { bg: string; glow: string }> = {
+  MYTHIC:     { bg: rgb(VL.rarityMythic),    glow: `0 0 10px ${alpha(VL.rarityMythic, 0.22)}` },
+  LEGENDARY:  { bg: rgb(VL.rarityLegendary), glow: `0 0 8px ${alpha(VL.rarityLegendary, 0.20)}` },
   EPIC:       { bg: rgb(VL.purple), glow: '0 0 6px rgb(var(--vl-purple) / 0.18)' },
-  ONE_OF_ONE: { bg: '#d7a53a', glow: '0 0 10px rgba(215, 165, 58, 0.22)' },
+  ONE_OF_ONE: { bg: rgb(VL.rarityOneOfOne),  glow: `0 0 10px ${alpha(VL.rarityOneOfOne, 0.22)}` },
 };
 /** Near-black icon/text on the filled pill (not pure black). */
-const PILL_INK = 'rgba(12, 10, 18, 0.82)';
+const PILL_INK = alpha(VL.ink, 0.82);
 const BADGE_FONT = "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
 /** Score → fallback rank-chip tint (Rare Feed non-tier rows only). */
@@ -36,6 +36,14 @@ export function scoreColor(score: number): string {
 }
 
 const TIERS = ['MYTHIC', 'LEGENDARY', 'EPIC'] as const;
+export type RarityTier = typeof TIERS[number];
+
+/** Percentile tier from raw rank+supply (same cutoffs as the badge). */
+export function rarityTier(rank: number | null | undefined, supply: number | null | undefined): RarityTier | null {
+  if (rank == null || !supply || supply <= 0) return null;
+  const pct = rank / supply;
+  return pct <= 0.01 ? 'MYTHIC' : pct <= 0.05 ? 'LEGENDARY' : pct <= 0.15 ? 'EPIC' : null;
+}
 
 export interface RarityRankBadgeProps {
   rarityRank:  number | null | undefined;
@@ -57,10 +65,7 @@ export function RarityRankBadge({ rarityRank, totalSupply, reasonTags, rareScore
 
   // Tier: from tags when present (Rare Feed) — else from percentile (raw data).
   let tier: string | null = tags.length ? (TIERS.find((t) => tags.includes(t)) ?? null) : null;
-  if (!oneOfOne && !tier && tags.length === 0 && totalSupply && totalSupply > 0) {
-    const pct = rarityRank / totalSupply;
-    tier = pct <= 0.01 ? 'MYTHIC' : pct <= 0.05 ? 'LEGENDARY' : pct <= 0.15 ? 'EPIC' : null;
-  }
+  if (!oneOfOne && !tier && tags.length === 0) tier = rarityTier(rarityRank, totalSupply);
 
   // Filled Tensor-style capsule for 1/1 + tiered sales.
   if (oneOfOne || tier) {

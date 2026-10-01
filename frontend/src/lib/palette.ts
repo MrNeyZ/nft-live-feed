@@ -61,6 +61,21 @@ export const VL = {
   // from VLText.muted below (a text tone, not a hue-family accent) even
   // though the two are visually close.
   gray:        [160, 160, 168] as RGB,  // #A0A0A8 base
+
+  // ◻ neutrals — overlay sheens / hairlines (neutral) and shadows / dark ink
+  // on filled pills (ink = --vl-gray-base). Replaces raw rgba(255,255,255,a)
+  // and rgba(0,0,0,a) literals.
+  neutral:     [255, 255, 255] as RGB,  // #FFFFFF
+  ink:         [8, 6, 12] as RGB,       // #08060C page base
+
+  // 🏷 third-party brand marks (chips that must match the brand, not the theme)
+  brandMe:      [228, 37, 117] as RGB,  // #E42575 Magic Eden
+  brandDiscord: [139, 147, 240] as RGB, // #8B93F0 Discord
+
+  // 💎 rarity tier pills (RarityRankBadge)
+  rarityMythic:    [239, 91, 151] as RGB,  // #EF5B97
+  rarityLegendary: [225, 166, 58] as RGB,  // #E1A63A
+  rarityOneOfOne:  [215, 165, 58] as RGB,  // #D7A53A
 } as const;
 
 // Neutral text tones (hex — no alpha composition needed in practice).
@@ -68,6 +83,22 @@ export const VLText = {
   primary: '#F0EEF8', // NFT names, primary text
   muted:   '#9A9AB4', // collection names, wallets, timestamps, labels
   faint:   '#63637A', // tertiary labels (seller:/buyer: etc.)
+  secondary: '#B9B7CB', // wallet links — between primary and muted
+} as const;
+
+// Hairlines (hex mirrors of --vl-border-*; canvas can't read CSS vars).
+export const VLLine = {
+  subtle:  '#241F3B',
+  primary: '#38315A',
+} as const;
+
+// Dark panel surfaces — steps between --vl-gray-surface and --vl-gray-base.
+const surf = (pct: number) => `color-mix(in srgb, var(--vl-gray-surface) ${pct}%, var(--vl-gray-base))`;
+export const VLSurface = {
+  raised: surf(80),  // card/header gradient bottom
+  panel:  surf(45),  // pane gradient bottom
+  chip:   surf(40),  // dark brand chip (Tensor)
+  well:   surf(10),  // recessed well (chart canvas)
 } as const;
 
 // Shared alpha ladder — the recurring opacity steps observed across the

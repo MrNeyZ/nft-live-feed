@@ -51,7 +51,7 @@ export const SlowTimeTickContext = createContext(false);
 // the one color that previously only existed as an inline literal inside
 // TimeAgo. Hoisted here so the FRESH badge can reuse the exact same value
 // instead of a second copy of the hex string.
-const TIMER_FRESH_PINK = '#e87ab0';
+const TIMER_FRESH_PINK = rgb(VL.pink);
 
 function TimeAgo({ ts }: { ts: number }) {
   const now = useSharedNow(useContext(SlowTimeTickContext));
@@ -224,7 +224,7 @@ function WalletLink({ wallet, snsDomainAuto }: { wallet: string | null; snsDomai
   useEffect(() => { setDomainClicked(false); }, [snsDomainAuto]);
 
   if (!wallet) {
-    return <span style={{ color: '#9494b0', fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>N/A</span>;
+    return <span style={{ color: VLText.muted, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>N/A</span>;
   }
   const isMe        = wallet === MY_WALLET;
   const solscanUrl  = `https://solscan.io/account/${wallet}`;
@@ -272,7 +272,7 @@ function WalletLink({ wallet, snsDomainAuto }: { wallet: string | null; snsDomai
             style={ME_ICON_LINK_STYLE}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/brand/sns.png?v=3" alt="SNS" width={10} height={10} draggable={false} style={{ display: 'block', borderRadius: 2, filter: 'drop-shadow(0 0 0.65px #2f6b3d)' }} />
+            <img src="/brand/sns.png?v=3" alt="SNS" width={10} height={10} draggable={false} style={{ display: 'block', borderRadius: 2, filter: `drop-shadow(0 0 0.65px ${alpha(VL.green, 0.55)})` }} />
           </a>
         )}
       </span>
@@ -285,7 +285,7 @@ function WalletLink({ wallet, snsDomainAuto }: { wallet: string | null; snsDomai
 // card widths since the shortened address already fits; only kicks in once
 // the party row is squeezed narrower than the address text.
 const WALLET_LINK_STYLE: React.CSSProperties = {
-  color: '#b9b7cb', fontWeight: 600,
+  color: VLText.secondary, fontWeight: 600,
   fontFamily: "'SF Mono','Fira Code',monospace",
   textDecoration: 'none',
   minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -293,7 +293,7 @@ const WALLET_LINK_STYLE: React.CSSProperties = {
 /** Wallet link style when showing a resolved SNS domain. VL.green (#43B984)
  *  matches the SNS logo's brand green within the VL palette. */
 const SNS_DOMAIN_LINK_STYLE: React.CSSProperties = {
-  color: '#43B984', fontWeight: 600,
+  color: rgb(VL.green), fontWeight: 600,
   fontFamily: "'SF Mono','Fira Code',monospace",
   textDecoration: 'none',
   minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -307,9 +307,9 @@ const YOU_BADGE_STYLE: React.CSSProperties = {
   fontWeight: 800,
   letterSpacing: '0.5px',
   borderRadius: 3,
-  background: 'rgba(95,168,230,0.18)',
-  color: '#5fa8e6',
-  border: '1px solid rgba(95,168,230,0.45)',
+  background: alpha(VL.blue, 0.18),
+  color: rgb(VL.blue),
+  border: `1px solid ${alpha(VL.blue, 0.45)}`,
   textDecoration: 'none',
   lineHeight: '14px',
 };
@@ -353,7 +353,7 @@ const ME_ICON_LINK_STYLE: React.CSSProperties = {
 const FLOOR_TONES = {
   pos: { fg: rgb(VL.green), bg: alpha(VL.green, ALPHA.tintWeak), bd: alpha(VL.green, ALPHA.border) },
   neg: { fg: rgb(VL.red),   bg: alpha(VL.red, ALPHA.tintWeak),   bd: alpha(VL.red, ALPHA.border) },
-  neu: { fg: VLText.muted,  bg: 'rgba(255,255,255,0.04)',        bd: 'rgba(255,255,255,0.12)' },
+  neu: { fg: VLText.muted,  bg: alpha(VL.neutral, 0.04),        bd: alpha(VL.neutral, 0.12) },
 } as const;
 function FloorChip({ delta }: { delta: number }) {
   if (!Number.isFinite(delta)) return null;
@@ -500,7 +500,7 @@ const FC_PRICE_SUFFIX_STYLE: React.CSSProperties = {
   // and opacity 0.7 → 0.85 so the unit reads clearly at scroll
   // speed without crowding the digits (still well below pure-white
   // price text). Digits remain dominant, suffix is now legible.
-  color: '#8585a0', fontWeight: 600, fontSize: 10.5, opacity: 0.72,
+  color: VLText.muted, fontWeight: 600, fontSize: 10.5, opacity: 0.72,
 };
 // Inline seller-remaining badge — sits next to the seller wallet on the
 // FeedCard. Sized to the 11×11 ME-icon metric used in the same row so it
@@ -704,7 +704,7 @@ export const FeedCard = memo(function FeedCard({
                 // visual band = 2 px, but only 1 px of it is colored, so
                 // the rim doesn't read as "thick".
                 border: `1px solid ${nftBorderColor}`,
-                boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.45)',
+                boxShadow: `inset 0 0 0 1px ${alpha(VL.ink, 0.45)}`,
                 pointerEvents: 'none',
               }}
             />
@@ -886,8 +886,8 @@ export const FeedCard = memo(function FeedCard({
                   height: 15, padding: '0 6px', borderRadius: 7,
                   fontSize: 9, fontWeight: 700, letterSpacing: '0.4px', lineHeight: 1,
                   color: VLText.muted,
-                  background: 'rgba(154,154,180,0.07)',
-                  border: '1px solid rgba(154,154,180,0.24)',
+                  background: `color-mix(in srgb, ${VLText.muted} 7%, transparent)`,
+                  border: `1px solid color-mix(in srgb, ${VLText.muted} 24%, transparent)`,
                   fontFamily: "'SF Mono','Fira Code',monospace",
                   textTransform: 'uppercase', flexShrink: 0,
                 }}
@@ -946,7 +946,7 @@ export const FeedCard = memo(function FeedCard({
                 kind === 'sellPersonal'      ? alpha(VL.gold, ALPHA.borderStrong) :
                 style.borderTone === 'sell' ? alpha(VL.redStrong, ALPHA.borderStrong) :
                 style.borderTone === 'buy'  ? alpha(VL.greenStrong, ALPHA.borderStrong) :
-                                              'rgba(255,255,255,0.12)';
+                                              alpha(VL.neutral, 0.12);
               return (
                 <span style={{
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: isAmm ? 2.75 : 0,
@@ -1035,7 +1035,7 @@ export interface ListingCardBuy {
 
 const LISTING_THUMB_FRAME_STYLE: React.CSSProperties = {
   position: 'absolute', inset: 0, borderRadius: 6, pointerEvents: 'none',
-  border: '1px solid rgb(64, 212, 168)', boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.45)',
+  border: `1px solid ${rgb(VL.greenStrong)}`, boxShadow: `inset 0 0 0 1px ${alpha(VL.ink, 0.45)}`,
 };
 const LISTING_OFFER_BADGE_STYLE: React.CSSProperties = {
   ...SELLER_REMAINING_BADGE_STYLE,
@@ -1103,6 +1103,7 @@ export const ListingCard = memo(function ListingCard({
     <div className={`feed-row-wrap${isCached ? ' feed-row-wrap-cached' : ''}${flash ? ' new-listing' : ''}`}>
       <div className={`feed-card listing-card${poolMember ? ' pool-member' : ''}${selected ? ' is-selected' : ''}${onSelect ? ' is-selectable' : ''}`}
         data-event-ts={ts ?? undefined} data-age-bucket={ageBucket}
+        data-sweep-mint={onSelect ? listing.mint : undefined}
         onClick={onSelect ? (e) => {
           // Links / buttons inside the card keep their own action.
           if ((e.target as HTMLElement).closest('a,button')) return;
@@ -1141,16 +1142,18 @@ export const ListingCard = memo(function ListingCard({
                 <span className="fc-party-label" style={FC_PARTY_LABEL_STYLE}>seller:</span>
                 <WalletLink wallet={listing.seller} snsDomainAuto={snsDomainAuto} />
               </>)}
-              {/* Best offer above floor — only when one exists. */}
-              {topOffer && (
+            </div>
+            {/* Best offer above this listing's price — own row under seller. */}
+            {topOffer && (
+              <div style={{ display: 'flex' }}>
                 <span style={LISTING_OFFER_BADGE_STYLE} title={`Top offer ${formatFeedPrice(topOffer.priceSol)} SOL (${topOffer.src === 'TENSOR' ? 'Tensor' : 'Magic Eden'})`}>
                   offer {formatFeedPrice(topOffer.priceSol)}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={topOffer.src === 'TENSOR' ? '/brand/tensor.png' : '/brand/me.png'} alt={topOffer.src} width={11} height={11}
                     draggable={false} style={{ display: 'block', borderRadius: 2, flexShrink: 0 }} />
                 </span>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1214,7 +1217,7 @@ export const PoolGroupCard = memo(function PoolGroupCard({
           </div>
           <span style={{
             position: 'absolute', right: 2, bottom: 2, padding: '1px 4px', borderRadius: 4,
-            fontSize: 9.5, fontWeight: 800, lineHeight: 1.2, background: 'rgba(0,0,0,0.72)', color: VLText.primary,
+            fontSize: 9.5, fontWeight: 800, lineHeight: 1.2, background: alpha(VL.ink, 0.72), color: VLText.primary,
           }}>×{count}</span>
         </div>
 

@@ -37,6 +37,9 @@ import { useUiSoundEnabled, setUiSoundEnabled } from '@/soloist/use-ui-sound';
 import { SalesChart, type SalePoint } from '@/soloist/sales-chart';
 import { FeedCard, ListingCard, PoolGroupCard, type ListingCardBuy } from '@/app/feed/lib/feed-card';
 import { useInclusiveFees } from '@/soloist/price-mode';
+import { useDragSelect } from './use-drag-select';
+import { VL, VLText, VLSurface, ALPHA, rgb, alpha } from '@/lib/palette';
+import { rarityTier, TIER_STYLE } from '@/app/feed/lib/rarity-rank-badge';
 import {
   connectPhantom,
   eagerConnectPhantom,
@@ -53,6 +56,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 // exceeded — the first-time snapshot stays intact.
 const MAX_EVENTS          = 5_000;
 const HISTORY_FETCH_LIMIT = 5_000;
+const HISTORY_FIRST_PAGE = 50;
 // Collection page TRADES panel — display cap applied at render time. The
 // feedReducer still retains the full 7-day history (needed for any future
 // filters); we just don't draw more rows than the user can realistically
@@ -64,10 +68,10 @@ const STATS_REFRESH_MS    = 60_000;
 // This interval is only the reconciliation safety net for transitions the
 // backend doesn't yet observe as events (cancel/delist/pool deposits).
 const LISTINGS_REFRESH_MS = 5 * 60_000;
-/** Floor-sweep slider: 2 NFTs per tick, up to 20; starts at 2. */
+/** Floor-sweep slider: 2 NFTs per tick, up to 20; starts at 0 (= nothing selected). */
 const SWEEP_STEP = 2;
 const SWEEP_MAX = 20;
-const SWEEP_TICKS = Array.from({ length: SWEEP_MAX / SWEEP_STEP }, (_, i) => (i + 1) * SWEEP_STEP);
+const SWEEP_TICKS = Array.from({ length: SWEEP_MAX / SWEEP_STEP + 1 }, (_, i) => i * SWEEP_STEP);
 const SWEEP_BUILD_CONCURRENCY = 4;
 
 const SPANS     = ['1H','4H','1D','7D','30D'] as const;
@@ -214,8 +218,26 @@ function mergeListingsWithRepriceTimer(prev: ListingRow[], incoming: ListingRow[
     if (l.id.startsWith('MMM:')) return l;
     const was = prevById.get(l.id);
     if (was && was.priceSol !== l.priceSol) return { ...l, listedAt: now };
+    // A relist the stream already stamped fresh must not jump back to the
+    // listing's original start time when a reconcile snapshot lands.
+    if (was?.listedAt != null && (l.listedAt == null || was.listedAt > l.listedAt)) return { ...l, listedAt: was.listedAt };
     return l;
   });
+}
+
+// Floor-side window: keep the cheapest FLOOR_SIDE_FRACTION of the existing
+// market plus everything new since the page opened (fresh list or relist /
+// reprice — both stamp listedAt). The backend's listing_snapshot carries the
+// full store, so this applies to every snapshot path, not just REST.
+const FLOOR_SIDE_FRACTION = 0.25;
+const FLOOR_SIDE_MIN = 30;
+function trimFloorSide(rows: ListingRow[], newSince: number): ListingRow[] {
+  const keepN = Math.max(FLOOR_SIDE_MIN, Math.ceil(rows.length * FLOOR_SIDE_FRACTION));
+  if (rows.length <= keepN) return rows;
+  const keep = new Set(
+    [...rows].sort((a, b) => a.priceSol - b.priceSol).slice(0, keepN).map(l => l.id),
+  );
+  return rows.filter(l => keep.has(l.id) || (l.listedAt != null && l.listedAt > newSince));
 }
 
 function resolveNftDisplay(input: {
@@ -331,6 +353,49 @@ function FilterBtn({ label }: { label: string }) {
   const [active, setActive] = useState(false);
   return <Pill active={active} onClick={() => setActive(a => !a)} label={label} size="sm" />;
 }
+type ListSort = 'price' | 'date' | 'mine' | 'EPIC' | 'LEGENDARY' | 'MYTHIC';
+const LIST_SORT_OPTIONS: { v: ListSort; label: string; color?: string }[] = [
+  { v: 'price',     label: 'price' },
+  { v: 'date',      label: 'listing date' },
+  { v: 'mine',      label: 'mine' },
+  { v: 'EPIC',      label: 'epic',      color: TIER_STYLE.EPIC.bg },
+  { v: 'LEGENDARY', label: 'legendary', color: TIER_STYLE.LEGENDARY.bg },
+  { v: 'MYTHIC',    label: 'mythic',    color: TIER_STYLE.MYTHIC.bg },
+];
+
+function SortMenu({ value, onChange }: { value: ListSort; onChange: (v: ListSort) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: PointerEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    window.addEventListener('pointerdown', close);
+    return () => window.removeEventListener('pointerdown', close);
+  }, [open]);
+  const cur = LIST_SORT_OPTIONS.find(o => o.v === value) ?? LIST_SORT_OPTIONS[0];
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <Pill
+        active={value !== 'price'}
+        onClick={() => setOpen(o => !o)}
+        label={<><span style={cur.color ? { color: cur.color } : undefined}>{cur.label}</span> <span style={{ color: 'var(--vl-border-subtle)' }}>▼</span></>}
+        size="sm"
+      />
+      {open && (
+        <div className="sort-menu">
+          {LIST_SORT_OPTIONS.map(o => (
+            <button key={o.v} className={`sort-menu-item${o.v === value ? ' is-active' : ''}`}
+              style={o.color ? { color: o.color } : undefined}
+              onClick={() => { onChange(o.v); setOpen(false); }}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DropBtn({ label }: { label: string }) {
   return (
     <Pill
@@ -410,10 +475,10 @@ function SocialIconLink({
 }
 
 // Chip-style presets.
-const BRAND_ME:      ChipStyle = { bg: '#E42575', glyph: 'var(--vl-white)', border: '#E4257544' };
-const BRAND_TENSOR:  ChipStyle = { bg: '#0f0d18', glyph: 'var(--vl-white)', border: '#ffffff1a' };
-const SOCIAL_CHIP:   ChipStyle = { bg: '#ffffff08', glyph: '#c4c0d6', border: '#ffffff14' };
-const DISCORD_CHIP:  ChipStyle = { bg: '#ffffff08', glyph: '#8b93f0', border: '#ffffff14' };
+const BRAND_ME:      ChipStyle = { bg: rgb(VL.brandMe), glyph: 'var(--vl-white)', border: alpha(VL.brandMe, 0.27) };
+const BRAND_TENSOR:  ChipStyle = { bg: VLSurface.chip, glyph: 'var(--vl-white)', border: alpha(VL.neutral, 0.1) };
+const SOCIAL_CHIP:   ChipStyle = { bg: alpha(VL.neutral, 0.03), glyph: `color-mix(in srgb, ${VLText.primary} 60%, ${VLText.muted})`, border: alpha(VL.neutral, 0.08) };
+const DISCORD_CHIP:  ChipStyle = { bg: alpha(VL.neutral, 0.03), glyph: rgb(VL.brandDiscord), border: alpha(VL.neutral, 0.08) };
 
 // ── Brand + social glyphs ───────────────────────────────────────────────────
 //
@@ -860,6 +925,9 @@ export default function CollectionPage() {
   const GROW_STEP = 20;
   const [listingsShow, setListingsShow] = useState(INITIAL_REVEAL);
   const [openPools, setOpenPools] = useState<Set<string>>(() => new Set());
+  const [walletPubkey, setWalletPubkey] = useState<string | null>(null);
+  // Listings sort/view. Rarity modes show only that exact tier (cheapest first).
+  const [listSort, setListSort] = useState<ListSort>('price');
   // Pool-hosted NFTs collapse into one row per pool, placed where the pool's
   // (shared) price sorts; expanding shows its NFTs right under it.
   const listingItems = useMemo(() => {
@@ -871,7 +939,14 @@ export default function CollectionPage() {
       const cur = byMint.get(l.mint);
       if (!cur || rank(l) < rank(cur)) byMint.set(l.mint, l);
     }
-    const sorted = Array.from(byMint.values()).sort((a, b) => a.priceSol - b.priceSol);
+    let pool = Array.from(byMint.values());
+    if (listSort === 'mine') pool = walletPubkey ? pool.filter(l => l.seller === walletPubkey) : [];
+    else if (listSort === 'EPIC' || listSort === 'LEGENDARY' || listSort === 'MYTHIC') {
+      pool = pool.filter(l => rarityTier(l.rank, collectionSupply) === listSort);
+    }
+    const sorted = listSort === 'date'
+      ? pool.sort((a, b) => (b.listedAt ?? 0) - (a.listedAt ?? 0) || a.priceSol - b.priceSol)
+      : pool.sort((a, b) => a.priceSol - b.priceSol);
     const byPool = new Map<string, ListingRow[]>();
     for (const l of sorted) if (l.poolKey) {
       const arr = byPool.get(l.poolKey);
@@ -886,14 +961,14 @@ export default function CollectionPage() {
       out.push({ kind: 'pool', poolKey: l.poolKey, rows: byPool.get(l.poolKey)! });
     }
     return out;
-  }, [listings]);
+  }, [listings, listSort, walletPubkey, collectionSupply]);
   const [tradesShow,   setTradesShow]   = useState(INITIAL_REVEAL);
   useEffect(() => {
     dispatchFeed({ type: 'reset' });
     setLoaded(false); setResolvedName(null);
     setFloorSol(null); setStatsData(null);
     setListedCount(null); setVolumeAllSol(null);
-    setListings([]); setBuyStatuses({}); setSweepSel(new Set()); setSweepN(SWEEP_STEP);
+    setListings([]); setBuyStatuses({}); setSweepSel(new Set());
     setChartPoints([]);
     setListingsShow(INITIAL_REVEAL);
     setTradesShow(INITIAL_REVEAL);
@@ -909,7 +984,6 @@ export default function CollectionPage() {
   }, []);
 
   // ── Wallet (Phantom) ───────────────────────────────────────────────────
-  const [walletPubkey, setWalletPubkey] = useState<string | null>(null);
   const [walletErr,    setWalletErr]    = useState<string | null>(null);
   useEffect(() => {
     eagerConnectPhantom().then(pk => { if (pk) setWalletPubkey(pk); }).catch(() => {});
@@ -1025,7 +1099,7 @@ export default function CollectionPage() {
           const d = JSON.parse(e.data) as { slug: string; listings: ListingRow[] };
           if (d.slug !== slug) return;
           const incoming = Array.isArray(d.listings) ? d.listings : [];
-          setListings(prev => mergeListingsWithRepriceTimer(prev, incoming));
+          setListings(prev => trimFloorSide(mergeListingsWithRepriceTimer(prev, incoming), pageOpenedAtRef.current));
         } catch { /* skip */ }
       });
       es.addEventListener('error', () => {
@@ -1039,8 +1113,8 @@ export default function CollectionPage() {
     // ME error — handled server-side. The legacy path is also kept available as
     // a dashboard/analytics endpoint; it is no longer the Collection page's
     // canonical source for side / type / naming.
-    const loadHistory = () => fetch(
-      `${API_BASE}/api/collections/trade-history?slug=${encodeURIComponent(slug)}&days=7&limit=${HISTORY_FETCH_LIMIT}`,
+    const loadHistory = (limit: number = HISTORY_FETCH_LIMIT) => fetch(
+      `${API_BASE}/api/collections/trade-history?slug=${encodeURIComponent(slug)}&days=7&limit=${limit}`,
     )
       .then(r => r.json())
       .then((data: LatestApiResponse) => {
@@ -1050,7 +1124,16 @@ export default function CollectionPage() {
       })
       .catch(() => { /* SSE may still bring live events */ });
 
-    loadHistory().finally(() => { if (!cancelled) { setLoaded(true); connectSse(); } });
+    // Two-stage: a small first page paints the visible rows fast (~0.5s
+    // cold vs ~3s / 2MB for the full 5k window), then the full history
+    // merges in behind it (snapshot is merge-only) for scroll + counters.
+    loadHistory(HISTORY_FIRST_PAGE)
+      .finally(() => {
+        if (cancelled) return;
+        setLoaded(true);
+        connectSse();
+        void loadHistory();
+      });
 
     // `/events/by-collection` triggers an async detached backfill when DB row
     // count < 50. The backfill bypasses saleEventBus (separate process, direct
@@ -1198,7 +1281,7 @@ export default function CollectionPage() {
         const json = await res.json() as { listings: ListingRow[] };
         if (cancelled) return;
         const incoming = Array.isArray(json.listings) ? json.listings : [];
-        setListings(prev => mergeListingsWithRepriceTimer(prev, incoming));
+        setListings(prev => trimFloorSide(mergeListingsWithRepriceTimer(prev, incoming), pageOpenedAtRef.current));
       } catch { /* transient */ }
     };
     load();
@@ -1286,7 +1369,6 @@ export default function CollectionPage() {
   // buy); all are signed with ONE Phantom approval, then broadcast and
   // confirmed individually, so one stale listing never sinks the rest.
   const [sweepSel, setSweepSel] = useState<Set<string>>(() => new Set());
-  const [sweepN,   setSweepN]   = useState(SWEEP_STEP);
   const [sweepStage, setSweepStage] = useState<'idle' | 'building' | 'signing' | 'sending'>('idle');
   const isSweepable = useCallback((l: ListingRow) => {
     if (l.poolKey || (l.marketplace !== 'me' && l.marketplace !== 'tensor')) return false;
@@ -1295,14 +1377,22 @@ export default function CollectionPage() {
   }, [buyStatuses]);
   // Cheapest first — what the floor slider takes from.
   const sweepFloorOrder = useMemo(
-    () => listings.filter(isSweepable).sort((x, y) => x.priceSol - y.priceSol),
-    [listings, isSweepable],
+    () => listingItems.flatMap(it => it.kind === 'row' && isSweepable(it.l) ? [it.l] : [])
+      .sort((x, y) => x.priceSol - y.priceSol),
+    [listingItems, isSweepable],
   );
   const sweepRows = useMemo(
     () => listings.filter(l => sweepSel.has(l.mint) && isSweepable(l)),
     [listings, sweepSel, isSweepable],
   );
   const sweepTotalSol = sweepRows.reduce((acc, l) => acc + l.priceSol, 0);
+  // Slider mirrors the selection size (card click / drag / slider alike).
+  const sweepN = Math.min(sweepRows.length, SWEEP_MAX);
+  // Press-and-drag (mouse) / long-press-and-slide (touch) multi-select.
+  const listingsScrollRef = useRef<HTMLDivElement | null>(null);
+  const sweepSelRef = useRef(sweepSel);
+  sweepSelRef.current = sweepSel;
+  useDragSelect(listingsScrollRef, () => sweepSelRef.current, setSweepSel, sweepStage === 'idle');
   const toggleSweep = useCallback((mint: string) => {
     setSweepSel(prev => {
       const next = new Set(prev);
@@ -1311,7 +1401,6 @@ export default function CollectionPage() {
     });
   }, []);
   const applyFloorSweep = (n: number) => {
-    setSweepN(n);
     setSweepSel(new Set(sweepFloorOrder.slice(0, n).map(l => l.mint)));
   };
 
@@ -1438,8 +1527,7 @@ export default function CollectionPage() {
   void tick;  // retained for TradeRowItem timeAgo refresh
 
   // Top offers: best live personal offer per listed mint (ME / Tensor) +
-  // the collection's best executable collection bid. Polled; shown only
-  // when above floor.
+  // the collection's best executable collection bid. Polled.
   type Offer = { priceSol: number; src: 'ME' | 'TENSOR' };
   const [offers, setOffers] = useState<{ byMint: Record<string, Offer>; collectionBid: Offer | null } | null>(null);
   useEffect(() => {
@@ -1459,11 +1547,14 @@ export default function CollectionPage() {
     const id = setInterval(load, 60_000);
     return () => { cancelled = true; clearTimeout(first); clearInterval(id); };
   }, [slug]);
-  const topOfferFor = (mint: string): Offer | null | undefined => {
+  // Shown only when the offer beats THIS listing's price (instant flip) and
+  // is above the dust threshold — at <=0.02 SOL fees eat the spread.
+  const OFFER_MIN_SOL = 0.02;
+  const topOfferFor = (mint: string, listPriceSol: number): Offer | null | undefined => {
     if (!offers) return undefined;
     const p = offers.byMint[mint], c = offers.collectionBid;
     const best = p && (!c || p.priceSol >= c.priceSol) ? p : c;
-    return best && listingsFloor != null && best.priceSol > listingsFloor ? best : null;
+    return best && best.priceSol > OFFER_MIN_SOL && best.priceSol > listPriceSol ? best : null;
   };
 
   const renderListing = (l: ListingRow, nested = false) => {
@@ -1484,7 +1575,7 @@ export default function CollectionPage() {
         abbr={headerAbbr}
         buy={listingBuyProps(l, buyStatuses[l.mint] ?? { kind: 'idle' }, !!walletPubkey, buyEnabled, onBuyListing)}
         onPreview={setPreview}
-        topOffer={nested ? null : topOfferFor(l.mint)}
+        topOffer={nested ? null : topOfferFor(l.mint, l.priceSol)}
         selected={!nested && sweepSel.has(l.mint)}
         onSelect={!nested && isSweepable(l) ? toggleSweep : undefined}
         poolMember={nested}
@@ -1502,10 +1593,10 @@ export default function CollectionPage() {
       <div style={{
         display:'flex', alignItems:'center', justifyContent:'space-between',
         padding:'10px 14px', margin:'10px 4px 0',
-        background:'linear-gradient(180deg, var(--vl-gray-surface) 0%, #15102a 100%)',
-        border:'1px solid rgba(148,124,226,0.18)',
+        background:`linear-gradient(180deg, var(--vl-gray-surface) 0%, ${VLSurface.raised} 100%)`,
+        border:`1px solid ${alpha(VL.purpleTint, 0.18)}`,
         borderRadius:12,
-        boxShadow:'inset 0 1px 0 rgba(255,255,255,0.05), 0 6px 16px rgba(0,0,0,0.38)',
+        boxShadow:`inset 0 1px 0 ${alpha(VL.neutral, 0.05)}, 0 6px 16px ${alpha(VL.ink, 0.38)}`,
         flexShrink:0,
       }}>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
@@ -1521,7 +1612,7 @@ export default function CollectionPage() {
                   ? { label: 'SELL PRESSURE',   border: '1px solid rgb(var(--vl-red) / .5)', background: 'rgb(var(--vl-red) / .13)', color: 'var(--vl-red-primary)' }
                   : marketSignal === 'buy'
                   ? { label: 'BUY OPPORTUNITY', border: '1px solid rgb(var(--vl-green) / .5)', background: 'rgb(var(--vl-green) / .13)', color: 'var(--vl-green-primary)' }
-                  : { label: 'MIXED',           border: '1px solid rgb(var(--vl-purple) / .5)', background: 'rgb(var(--vl-purple) / .13)', color: '#b8a8f0' };
+                  : { label: 'MIXED',           border: '1px solid rgb(var(--vl-purple) / .5)', background: 'rgb(var(--vl-purple) / .13)', color: rgb(VL.purpleTint) };
                 return (
                   <span
                     
@@ -1580,14 +1671,14 @@ export default function CollectionPage() {
           </div>
         </div>
         <div className="collection-header-right" style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:6 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8, fontSize:10, color:'#4d4d6e' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, fontSize:10, color: VLText.faint }}>
             <span>Metadata fetched</span>
-            <div style={{ width:60, height:3, borderRadius:2, background:'#ffffff08', overflow:'hidden' }}>
+            <div style={{ width:60, height:3, borderRadius:2, background:alpha(VL.neutral, 0.03), overflow:'hidden' }}>
               <div style={{ width: events.length > 0 ? '100%' : '0%', height:'100%', background:'var(--vl-green-primary)', transition:'width 0.4s' }} />
             </div>
             <span style={{ color:'var(--vl-green-primary)' }}>{events.length > 0 ? '100%' : '—'}</span>
             <span>Ranks variety</span>
-            <div style={{ width:60, height:3, borderRadius:2, background:'#ffffff08', overflow:'hidden' }}>
+            <div style={{ width:60, height:3, borderRadius:2, background:alpha(VL.neutral, 0.03), overflow:'hidden' }}>
               <div style={{ width: listings.length > 0 ? '99%' : '0%', height:'100%', background:'var(--vl-gold-primary)', transition:'width 0.4s' }} />
             </div>
             <span style={{ color:'var(--vl-gold-primary)' }}>{listings.length > 0 ? '99%' : '—'}</span>
@@ -1606,11 +1697,11 @@ export default function CollectionPage() {
                 border:'1px solid rgb(var(--vl-purple-tint) / 0.20)', background:'rgb(var(--vl-purple-tint) / 0.14)', color:'var(--vl-text-muted)', cursor:'pointer',
               }}>Connect Phantom</button>
             )}
-            <button style={{ padding:'4px 10px', fontSize:11, borderRadius:4, border:'1px solid rgba(255,255,255,0.06)', background:'rgba(255,255,255,0.04)', color:'var(--vl-text-muted)', cursor:'pointer' }}>id, name or address</button>
+            <button style={{ padding:'4px 10px', fontSize:11, borderRadius:4, border:`1px solid ${alpha(VL.neutral, 0.06)}`, background:alpha(VL.neutral, 0.04), color:'var(--vl-text-muted)', cursor:'pointer' }}>id, name or address</button>
             <button style={{ padding:'4px 10px', fontSize:11, borderRadius:4, border:'1px solid rgb(var(--vl-purple-tint) / 0.20)', background:'rgb(var(--vl-purple-tint) / 0.14)', color:'var(--vl-text-muted)', cursor:'pointer' }}>Quick lookup</button>
           </div>
           {walletErr && (
-            <span style={{ fontSize:9, color:'#9a7a7a', maxWidth:280, textAlign:'right' }}>{walletErr}</span>
+            <span style={{ fontSize:9, color: rgb(VL.redMuted), maxWidth:280, textAlign:'right' }}>{walletErr}</span>
           )}
         </div>
       </div>
@@ -1639,7 +1730,7 @@ export default function CollectionPage() {
           background:'linear-gradient(180deg, var(--vl-gray-surface) 0%, var(--vl-gray-surface) 100%)',
           border:'1px solid rgb(var(--vl-purple-tint) / 0.28)',
           borderRadius:12,
-          boxShadow:'inset 0 1px 0 rgba(255,255,255,0.07), 0 12px 28px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.4), 0 0 14px rgb(var(--vl-purple-deep) / 0.05)',
+          boxShadow:`inset 0 1px 0 ${alpha(VL.neutral, 0.07)}, 0 12px 28px ${alpha(VL.ink, 0.5)}, 0 0 0 1px ${alpha(VL.ink, 0.4)}, 0 0 14px rgb(var(--vl-purple-deep) / 0.05)`,
           position:'relative',
         }}>
           <div style={{ padding:'5px 8px', borderBottom:'1px solid rgb(var(--vl-purple-tint) / 0.12)', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'space-between', background:'rgb(var(--vl-purple-tint) / 0.04)' }}>
@@ -1665,14 +1756,14 @@ export default function CollectionPage() {
                 size="sm"
               />
               <span style={{ fontSize:10, color:'var(--vl-text-muted)' }}>Sort:</span>
-              <DropBtn label="listing date" />
+              <SortMenu value={listSort} onChange={(v) => { setListSort(v); setListingsShow(INITIAL_REVEAL); }} />
             </div>
           </div>
 
           {filtersOpen && (
-            <div style={{ padding:'6px 8px', borderBottom:'1px solid rgba(255,255,255,0.05)', flexShrink:0, background:'rgba(255,255,255,0.015)' }}>
+            <div style={{ padding:'6px 8px', borderBottom:`1px solid ${alpha(VL.neutral, 0.05)}`, flexShrink:0, background:alpha(VL.neutral, 0.015) }}>
               <div style={{ display:'flex', gap:3, flexWrap:'wrap', marginBottom:4 }}>
-                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid #d63d7c48', background:'#d63d7c20', fontSize:9, fontWeight:700, color:'var(--vl-text-muted)', cursor:'pointer' }}>ME</span>
+                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:`1px solid ${alpha(VL.brandMe, ALPHA.borderStrong)}`, background: alpha(VL.brandMe, ALPHA.tint), fontSize:9, fontWeight:700, color:'var(--vl-text-muted)', cursor:'pointer' }}>ME</span>
                 <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid rgb(var(--vl-purple) / .28)', background:'rgb(var(--vl-purple) / .13)', fontSize:9, fontWeight:700, color:'var(--vl-purple-tint)', cursor:'pointer' }}>T</span>
                 <FilterBtn label="Min price" />
                 <FilterBtn label="Max price" />
@@ -1680,8 +1771,8 @@ export default function CollectionPage() {
               </div>
               <div style={{ display:'flex', gap:3, alignItems:'center' }}>
                 <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid rgb(var(--vl-green) / .28)', background:'rgb(var(--vl-green) / .13)', fontSize:9, fontWeight:700, color:'var(--vl-green-primary)', cursor:'pointer' }}>◎</span>
-                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid #ffffff0d', background:'#ffffff07', fontSize:9, color:'var(--vl-text-muted)', cursor:'pointer' }}>↓</span>
-                <button style={{ padding:'3px 10px', fontSize:11, borderRadius:4, border:'1px solid #ffffff0d', background:'#ffffff07', color:'var(--vl-text-muted)', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
+                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:`1px solid ${alpha(VL.neutral, 0.05)}`, background:alpha(VL.neutral, 0.03), fontSize:9, color:'var(--vl-text-muted)', cursor:'pointer' }}>↓</span>
+                <button style={{ padding:'3px 10px', fontSize:11, borderRadius:4, border:`1px solid ${alpha(VL.neutral, 0.05)}`, background:alpha(VL.neutral, 0.03), color:'var(--vl-text-muted)', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
                   <span style={{ color:'var(--vl-green-primary)' }}>+</span> Trait filter
                 </button>
                 <div style={{ flex:1 }} />
@@ -1691,33 +1782,30 @@ export default function CollectionPage() {
             </div>
           )}
 
-          {/* Sweep bar: floor slider (2 per tick) + BUY ALL once anything is selected. */}
+          {/* Sweep bar: appears once ≥1 NFT is picked (card click / drag);
+           *  slider (2 per tick) extends from the floor, 0 hides it again. */}
+          {(sweepRows.length > 0 || sweepStage !== 'idle') && (
           <div className="sweep-bar">
             <span className="sweep-bar-label">SWEEP</span>
             <input
               type="range"
-              min={SWEEP_STEP}
+              min={0}
               max={SWEEP_MAX}
-              step={SWEEP_STEP}
+              step={1}  // exact selection count; ticks still every SWEEP_STEP
               list="sweep-ticks"
               value={sweepN}
               onChange={(e) => applyFloorSweep(Number(e.target.value))}
-              // Click on the resting thumb (no drag) still applies the value.
-              onPointerUp={(e) => applyFloorSweep(Number((e.target as HTMLInputElement).value))}
               disabled={sweepFloorOrder.length === 0 || sweepStage !== 'idle'}
               aria-label="Select the N cheapest listings"
               title={`Select the ${Math.min(sweepN, sweepFloorOrder.length)} cheapest listings`}
               className="sweep-slider"
-              style={{ '--fill': `${((sweepN - SWEEP_STEP) / (SWEEP_MAX - SWEEP_STEP)) * 100}%` } as React.CSSProperties}
+              style={{ '--fill': `${(sweepN / SWEEP_MAX) * 100}%` } as React.CSSProperties}
             />
             <datalist id="sweep-ticks">
               {SWEEP_TICKS.map(v => <option key={v} value={v} />)}
             </datalist>
-            <span className="sweep-bar-n">{Math.min(sweepN, sweepFloorOrder.length)}</span>
+            <span className="sweep-bar-n">{sweepRows.length}</span>
             <div style={{ flex: 1 }} />
-            {sweepRows.length > 0 && sweepStage === 'idle' && (
-              <button className="sweep-clear" onClick={() => setSweepSel(new Set())} title="Clear selection">✕</button>
-            )}
             {(sweepRows.length > 0 || sweepStage !== 'idle') && (
               <button
                 className="sweep-buy-all"
@@ -1731,8 +1819,10 @@ export default function CollectionPage() {
               </button>
             )}
           </div>
+          )}
 
           <div
+            ref={listingsScrollRef}
             style={{ flex:1, overflowY:'auto' }}
             className="scroll-area"
             onScroll={(e) => {
@@ -1783,7 +1873,7 @@ export default function CollectionPage() {
           background:'linear-gradient(180deg, var(--vl-gray-surface) 0%, var(--vl-gray-surface) 100%)',
           border:'1px solid rgb(var(--vl-purple-tint) / 0.28)',
           borderRadius:12,
-          boxShadow:'inset 0 1px 0 rgba(255,255,255,0.07), 0 12px 28px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.4), 0 0 14px rgb(var(--vl-purple-deep) / 0.05)',
+          boxShadow:`inset 0 1px 0 ${alpha(VL.neutral, 0.07)}, 0 12px 28px ${alpha(VL.ink, 0.5)}, 0 0 0 1px ${alpha(VL.ink, 0.4)}, 0 0 14px rgb(var(--vl-purple-deep) / 0.05)`,
           position:'relative',
         }}>
           <div style={{ padding:'5px 8px', borderBottom:'1px solid rgb(var(--vl-purple-tint) / 0.12)', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'space-between', background:'rgb(var(--vl-purple-tint) / 0.04)' }}>
@@ -1800,9 +1890,9 @@ export default function CollectionPage() {
                 // border weight escalate with severity. No layout change —
                 // only border / background / color tokens differ.
                 const palette = bidDumpSeverity === 'extreme'
-                  ? { border: '1px solid #e05858a8', background: '#e0585830', color: '#ff9b9b' }
+                  ? { border: `1px solid ${alpha(VL.redStrong, 0.66)}`, background: alpha(VL.redStrong, 0.19), color: rgb(VL.redGlow) }
                   : bidDumpSeverity === 'strong'
-                  ? { border: '1px solid #d06a6a90', background: '#d06a6a28', color: '#f08080' }
+                  ? { border: `1px solid ${alpha(VL.red, 0.56)}`, background: alpha(VL.red, 0.16), color: rgb(VL.redGlow) }
                   : { border: '1px solid rgb(var(--vl-red) / .38)', background: 'rgb(var(--vl-red) / .13)', color: 'var(--vl-red-primary)' };
                 const tooltip =
                   `${bidDumpStats.count} bid-sells in 60s`
@@ -1838,9 +1928,9 @@ export default function CollectionPage() {
           </div>
 
           {tradeFiltersOpen && (
-            <div style={{ padding:'6px 8px', borderBottom:'1px solid rgba(255,255,255,0.05)', flexShrink:0, background:'rgba(255,255,255,0.015)' }}>
+            <div style={{ padding:'6px 8px', borderBottom:`1px solid ${alpha(VL.neutral, 0.05)}`, flexShrink:0, background:alpha(VL.neutral, 0.015) }}>
               <div style={{ display:'flex', gap:3, flexWrap:'wrap', marginBottom:4 }}>
-                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid #d63d7c48', background:'#d63d7c20', fontSize:9, fontWeight:700, color:'var(--vl-text-muted)', cursor:'pointer' }}>ME</span>
+                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:`1px solid ${alpha(VL.brandMe, ALPHA.borderStrong)}`, background: alpha(VL.brandMe, ALPHA.tint), fontSize:9, fontWeight:700, color:'var(--vl-text-muted)', cursor:'pointer' }}>ME</span>
                 <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid rgb(var(--vl-purple) / .28)', background:'rgb(var(--vl-purple) / .13)', fontSize:9, fontWeight:700, color:'var(--vl-purple-tint)', cursor:'pointer' }}>T</span>
                 <FilterBtn label="Min price" />
                 <FilterBtn label="Max price" />
@@ -1848,8 +1938,8 @@ export default function CollectionPage() {
               </div>
               <div style={{ display:'flex', gap:3, alignItems:'center' }}>
                 <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid rgb(var(--vl-green) / .28)', background:'rgb(var(--vl-green) / .13)', fontSize:9, fontWeight:700, color:'var(--vl-green-primary)', cursor:'pointer' }}>◎</span>
-                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid #ffffff0d', background:'#ffffff07', fontSize:9, color:'var(--vl-text-muted)', cursor:'pointer' }}>↓</span>
-                <button style={{ padding:'3px 10px', fontSize:11, borderRadius:4, border:'1px solid #ffffff0d', background:'#ffffff07', color:'var(--vl-text-muted)', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
+                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:`1px solid ${alpha(VL.neutral, 0.05)}`, background:alpha(VL.neutral, 0.03), fontSize:9, color:'var(--vl-text-muted)', cursor:'pointer' }}>↓</span>
+                <button style={{ padding:'3px 10px', fontSize:11, borderRadius:4, border:`1px solid ${alpha(VL.neutral, 0.05)}`, background:alpha(VL.neutral, 0.03), color:'var(--vl-text-muted)', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
                   <span style={{ color:'var(--vl-green-primary)' }}>+</span> Trait filter
                 </button>
                 <div style={{ flex:1 }} />
@@ -1887,7 +1977,7 @@ export default function CollectionPage() {
                   isNewestSellForSellerColl={false}
                   density="compact"
                   numOnly
-                  thumbBorderColor="rgb(245, 88, 102)"
+                  thumbBorderColor={rgb(VL.redStrong)}
                 />
               ))}
             </div>
@@ -1897,14 +1987,14 @@ export default function CollectionPage() {
         {/* RIGHT: Stats + Chart (verbatim layout) */}
         <div className="collection-pane-stats" style={{
           display:'flex', flexDirection:'column', overflow:'hidden',
-          background:'linear-gradient(180deg, #13102a 0%, #0f0c22 100%)',
-          border:'1px solid rgba(255,255,255,0.05)',
+          background:`linear-gradient(180deg, ${VLSurface.raised} 0%, ${VLSurface.panel} 100%)`,
+          border:`1px solid ${alpha(VL.neutral, 0.05)}`,
           borderRadius:12,
-          boxShadow:'inset 0 1px 0 rgba(255,255,255,0.02), 0 6px 20px rgba(0,0,0,0.4)',
+          boxShadow:`inset 0 1px 0 ${alpha(VL.neutral, 0.02)}, 0 6px 20px ${alpha(VL.ink, 0.4)}`,
           opacity:0.92,
         }}>
           {/* Stats row 1 */}
-          <div style={{ display:'flex', borderBottom:'1px solid rgba(255,255,255,0.05)', flexShrink:0, background:'rgba(255,255,255,0.02)' }}>
+          <div style={{ display:'flex', borderBottom:`1px solid ${alpha(VL.neutral, 0.05)}`, flexShrink:0, background:alpha(VL.neutral, 0.02) }}>
             <StatItem value={sales1dCount.toLocaleString()}                       label="1D Sales" />
             <StatItem value={sales1hCount.toLocaleString()}                       label="1H Sales" />
             <StatItem value={sales10mCount.toLocaleString()}                      label="10M Sales" />
@@ -1917,7 +2007,7 @@ export default function CollectionPage() {
             <StatItem value={floorSol != null ? floorSol.toFixed(floorSol < 1 ? 3 : 2) : '—'} label="Floor" highlight="var(--vl-green-primary)" />
           </div>
           {/* Stats row 2 */}
-          <div style={{ display:'flex', borderBottom:'1px solid rgba(255,255,255,0.05)', flexShrink:0, background:'transparent' }}>
+          <div style={{ display:'flex', borderBottom:`1px solid ${alpha(VL.neutral, 0.05)}`, flexShrink:0, background:'transparent' }}>
             <StatItem value={vol7dSol  != null ? formatSol(vol7dSol)  : '—'} label="7D Vol" />
             <StatItem value={vol24hSol != null ? formatSol(vol24hSol) : '—'} label="24H Vol" />
             <StatItem value={volumeAllSol != null ? `${(volumeAllSol/1000).toFixed(1)}K` : '—'} label="Total Volume" />
@@ -1929,13 +2019,13 @@ export default function CollectionPage() {
           }}>
             <span style={{ fontSize:11, fontWeight:700, color:'var(--vl-text-muted)', letterSpacing:'0.5px' }}>TRADES</span>
             <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-              <span style={{ fontSize:11, color:'#4d4d6e' }}>Span</span>
-              <div style={{ display:'flex', background:'rgba(255,255,255,0.02)', border:'1px solid #ffffff08', borderRadius:4, overflow:'hidden' }}>
+              <span style={{ fontSize:11, color: VLText.faint }}>Span</span>
+              <div style={{ display:'flex', background:alpha(VL.neutral, 0.02), border:`1px solid ${alpha(VL.neutral, 0.03)}`, borderRadius:4, overflow:'hidden' }}>
                 {SPANS.map(v => (
                   <button key={v} onClick={() => setSpan(v)} style={{
                     padding:'2px 7px', fontSize:10, fontWeight:600, border:'none',
                     background: span === v ? 'rgb(var(--vl-green) / .13)' : 'transparent',
-                    borderRight: '1px solid #ffffff08',
+                    borderRight: `1px solid ${alpha(VL.neutral, 0.03)}`,
                     color: span === v ? 'var(--vl-green-primary)' : 'var(--vl-text-muted)',
                     cursor:'pointer',
                   }}>{v}</button>
@@ -1945,10 +2035,10 @@ export default function CollectionPage() {
                 onClick={() => setOutliers(v => !v)}
                 title={outliers ? 'Showing every sale (axis stretches to extremes)' : 'Extreme sales pinned to the chart edge'}
                 style={{ display:'flex', alignItems:'center', gap:6, background:'none', border:'none', padding:0, cursor:'pointer' }}>
-                <span style={{ fontSize:11, color: outliers ? 'var(--vl-text-muted)' : '#4d4d6e' }}>Outliers</span>
+                <span style={{ fontSize:11, color: outliers ? 'var(--vl-text-muted)' : VLText.faint }}>Outliers</span>
                 <span style={{
                   width:28, height:14, borderRadius:7, position:'relative',
-                  background: outliers ? 'rgb(var(--vl-green) / .35)' : '#ffffff0d',
+                  background: outliers ? 'rgb(var(--vl-green) / .35)' : alpha(VL.neutral, 0.05),
                   transition:'background 120ms',
                 }}>
                   <span style={{
@@ -1965,8 +2055,8 @@ export default function CollectionPage() {
           <div className="collection-chart" style={{
             flex:1, display:'flex', minHeight:0,
             margin:'4px 10px 10px',
-            background:'#0a0714',
-            border:'1px solid rgba(255,255,255,0.04)',
+            background: VLSurface.well,
+            border:`1px solid ${alpha(VL.neutral, 0.04)}`,
             borderRadius:8,
             overflow:'hidden',
           }}>

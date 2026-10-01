@@ -17,7 +17,7 @@
 // outside it are drawn as edge markers instead of stretching the axis.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { VL, VLText, alpha, rgb } from '@/lib/palette';
+import { VL, VLText, VLLine, VLSurface, alpha, rgb } from '@/lib/palette';
 import { formatSol, shortWallet, timeAgo } from '@/soloist/mock-data';
 
 export interface SalePoint {
@@ -55,13 +55,13 @@ const C = {
   buy:     rgb(VL.greenStrong),
   sell:    rgb(VL.redStrong),
   median:  alpha(VL.purpleTint, 0.75),
-  floor:   alpha([240, 238, 248], 0.55),
+  floor:   alpha(VL.neutral, 0.55),
   rare:    rgb(VL.goldBright),
-  grid:    'rgba(255,255,255,0.045)',
+  grid:    alpha(VL.neutral, 0.045),
   axis:    VLText.muted,
   volBuy:  alpha(VL.greenStrong, 0.35),
   volSell: alpha(VL.redStrong, 0.35),
-  labelBg: '#241F3B',
+  labelBg: VLLine.subtle,
 };
 
 const TIME_STEPS = [
@@ -456,13 +456,13 @@ export function SalesChart({ points, spanMs, floor, showOutliers }: Props) {
       ctx.fillText(text, ax0 + 6, yy + 3.5);
     };
     if (floor != null && floor > 0 && floor >= y0 && floor <= y1) {
-      tag(fmtPrice(floor), y(floor), '#3a3552', VLText.primary);
+      tag(fmtPrice(floor), y(floor), VLLine.primary, VLText.primary);
     }
     if (lastVisible && last) {
-      tag(fmtPrice(last.price), y(last.price), last.side === 'sell' ? C.sell : C.buy, '#0a0714');
+      tag(fmtPrice(last.price), y(last.price), last.side === 'sell' ? C.sell : C.buy, rgb(VL.ink));
     }
     if (ap && ap.ts >= t0 && ap.ts <= t1 && ap.price >= y0 && ap.price <= y1) {
-      tag(fmtPrice(ap.price), y(ap.price), ap.side === 'sell' ? C.sell : C.buy, '#0a0714');
+      tag(fmtPrice(ap.price), y(ap.price), ap.side === 'sell' ? C.sell : C.buy, rgb(VL.ink));
       const tl = fmtHM(new Date(ap.ts)) + (range > 86_400_000 ? ` ${fmtMD(new Date(ap.ts))}` : '');
       const tw = ctx.measureText(tl).width + 8;
       const tx = Math.min(Math.max(x(ap.ts), PAD.l + tw / 2), PAD.l + plotW - tw / 2);
@@ -715,16 +715,16 @@ export function SalesChart({ points, spanMs, floor, showOutliers }: Props) {
         onPointerDown={e => e.stopPropagation()}
         style={{
           position: 'absolute', left, top, width: TW, zIndex: 3,
-          background: 'rgba(19,16,42,0.97)', border: `1px solid ${isPinned ? 'var(--vl-purple-tint)' : 'var(--vl-border-primary)'}`,
+          background: VLSurface.raised, border: `1px solid ${isPinned ? 'var(--vl-purple-tint)' : 'var(--vl-border-primary)'}`,
           borderRadius: 8, padding: 8, fontSize: 11, color: VLText.muted,
-          boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+          boxShadow: `0 8px 24px ${alpha(VL.ink, 0.5)}`,
           pointerEvents: isPinned ? 'auto' : 'none',
           display: 'flex', flexDirection: 'column', gap: 6,
         }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {ap.image
-            ? <img src={ap.image} alt="" width={44} height={44} style={{ borderRadius: 6, objectFit: 'cover', flexShrink: 0, background: '#0a0714' }} />
-            : <div style={{ width: 44, height: 44, borderRadius: 6, background: '#241F3B', flexShrink: 0 }} />}
+            ? <img src={ap.image} alt="" width={44} height={44} style={{ borderRadius: 6, objectFit: 'cover', flexShrink: 0, background: VLSurface.well }} />
+            : <div style={{ width: 44, height: 44, borderRadius: 6, background: VLLine.subtle, flexShrink: 0 }} />}
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ color: VLText.primary, fontWeight: 600, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ap.name}</div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
