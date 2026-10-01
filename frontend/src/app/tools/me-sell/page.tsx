@@ -38,8 +38,8 @@
 //     hand back a digest at all (`needsBridge`) rather than pretend the
 //     trade can complete.
 
-import { useRef, useState } from 'react';
-import { PublicKey, Transaction } from '@solana/web3.js';
+import { useEffect, useRef, useState } from 'react';
+import { PublicKey, Transaction, VersionedTransaction } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { authHeaders } from '@/runtime/auth';
 import { connectPhantom, eagerConnectPhantom, getPhantom, signSendAndConfirm, assertPhantomWallet } from '@/wallet/phantom';
@@ -63,16 +63,27 @@ interface OrderInfo {
   sellerProceedsLamports: number; sellerProceedsSol: number;
   meFeeBp: number;
   nft: { name: string | null; image: string | null };
-  standard: 'pnft' | 'mplCore' | null;
+  standard: 'pnft' | 'mplCore' | 'legacy' | null;
   standardSupported: boolean;
 }
 interface BuiltAccept {
   source: 'bridge' | 'backend';
   digest: string | null; txBase64: string; cosignerPubkey: string | null; priceSol: number;
+  /** 0 = ME's v0+ALT variant (taken by the backend when the legacy tx exceeds
+   *  the 1232-byte wire limit); absent = legacy `Transaction`. */
+  txVersion?: 0;
   lastValidBlockHeight: number;
   intent: FrozenOfferIntent;
   seller: string;
   attemptToken: number;
+  /** Atomic escrow top-up: [top-up, sale, tip] go out as ONE Jito bundle. */
+  bundle?: BundleParts;
+}
+interface BundleParts {
+  topupTxBase64: string; tipTxBase64: string;
+  escrowPda: string; escrowLamports: number;
+  topupLamports: number; tipLamports: number;
+  simUnitsConsumed: number | null; simEscrowLeftoverLamports: number;
 }
 type SimState = { err: unknown; logs: string[]; unitsConsumed: number | null } | null;
 
@@ -226,7 +237,7 @@ export default function MeSellPage() {
   // IP-level throttling on our own backend, see server/tools-me-sell.ts
   // header), backend build-accept as fallback (works fine for
   // recently-placed offers; also useful if Tampermonkey isn't installed).
-  const doBuild = async () => {
+  const doBuild = async (bundleMode = false) => {
     if (!info || !wallet || !canRebuild(outcome)) return;
     if (!info.standardSupported || !info.standard) {
       setBuildError('Unsupported NFT standard — no verified-safe M2 instruction shape for this asset.');
@@ -252,7 +263,9 @@ export default function MeSellPage() {
 
     try {
       let bridgeResult: { txBase64: string; lastValidBlockHeight: number } | null = null;
-      try {
+      // Bundle mode is backend-only: the server must size + simulate the
+      // top-up against ME's exact sale ixs and bind all three txs to one digest.
+      if (!bundleMode) try {
         const br = await requestMeSellAccept({
           seller, tokenMint: intent.mint, tokenATA: tokenAta,
           auctionHouseAddress: intent.auctionHouse, buyer: intent.buyer,
@@ -303,24 +316,31 @@ export default function MeSellPage() {
           seller, tokenMint: intent.mint, priceSol: info.priceSol,
           auctionHouseAddress: intent.auctionHouse, buyer: intent.buyer,
           buyerExpiry: buyerExpiryMs / 1000,
+          ...(bundleMode ? { bundleTopup: true } : {}),
         }),
       });
       const j = await r.json() as {
         ok: boolean; digest?: string; txBase64?: string; cosignerPubkey?: string; error?: string;
-        needsBridge?: boolean; detail?: string; priceLamports?: string; standard?: 'pnft' | 'mplCore';
-        lastValidBlockHeight?: number;
+        needsBridge?: boolean; detail?: string; priceLamports?: string; standard?: 'pnft' | 'mplCore' | 'legacy';
+        lastValidBlockHeight?: number; txVersion?: number; bundle?: BundleParts;
       };
       if (!r.ok || !j.ok || !j.digest || !j.txBase64 || j.lastValidBlockHeight == null) {
         if (j.needsBridge) setNeedsBridge(true);
         throw new Error(j.detail ?? j.error ?? `HTTP ${r.status}`);
       }
       if (!attemptGuard.current.isCurrent(attemptToken)) return;
+      if (bundleMode && !j.bundle) throw new Error('backend returned no bundle parts');
       setBuilt({
+        ...(bundleMode && j.bundle ? { bundle: j.bundle } : {}),
         source: 'backend', digest: j.digest, txBase64: j.txBase64, cosignerPubkey: j.cosignerPubkey ?? null,
+        ...(j.txVersion === 0 ? { txVersion: 0 as const } : {}),
         priceSol: info.priceSol, lastValidBlockHeight: j.lastValidBlockHeight,
         intent: { ...intent, priceLamports: j.priceLamports ?? intent.priceLamports, standard: j.standard ?? intent.standard },
         seller, attemptToken,
       });
+      // The server already simulated top-up + sale together (with the
+      // exact top-up amount) before handing the bundle out.
+      if (bundleMode && j.bundle) setSim({ err: null, logs: [], unitsConsumed: j.bundle.simUnitsConsumed });
     } catch (e) {
       if (attemptGuard.current.isCurrent(attemptToken)) setBuildError(humanThrow((e as Error).message));
     } finally {
@@ -335,7 +355,7 @@ export default function MeSellPage() {
       const r = await fetch(`${API_BASE}/api/tools/me-sell/simulate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ tx: built.txBase64 }),
+        body: JSON.stringify({ tx: built.txBase64, ...(built.txVersion === 0 ? { txVersion: 0 } : {}) }),
       });
       const j = await r.json() as { ok: boolean; err: unknown; logs: string[]; unitsConsumed: number | null; error?: string };
       if (!r.ok || !j.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
@@ -343,6 +363,15 @@ export default function MeSellPage() {
     } catch (e) { setSim({ err: (e as Error).message, logs: [], unitsConsumed: null }); }
     finally { setSimBusy(false); }
   };
+
+  // Simulate right after every fresh build — a separate click only burned
+  // blockhash lifetime. The button stays as Re-simulate after a failure.
+  const autoSimmed = useRef<BuiltAccept | null>(null);
+  useEffect(() => {
+    if (!built || built.bundle || sim != null || simBusy || autoSimmed.current === built) return;
+    autoSimmed.current = built;
+    void doSimulate();
+  });
 
   const simFailed = sim != null && sim.err != null;
 
@@ -368,9 +397,32 @@ export default function MeSellPage() {
       const sol = getPhantom();
       if (!sol) throw new Error('Phantom not connected');
       assertPhantomWallet(built.seller);
-      const tx = Transaction.from(Buffer.from(built.txBase64, 'base64'));
-      const signed = await sol.signTransaction(tx);
-      const signedB64 = signed.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64');
+      let signedB64: string;
+      let signedAux: { topup: string; tip: string } | null = null;
+      if (built.bundle) {
+        // ONE approval for all three. signAllTransactions never gets Phantom's
+        // Lighthouse injection, and the server re-checks every message anyway.
+        const topupTx = Transaction.from(Buffer.from(built.bundle.topupTxBase64, 'base64'));
+        const tipTx = Transaction.from(Buffer.from(built.bundle.tipTxBase64, 'base64'));
+        const saleTx: Transaction | VersionedTransaction = built.txVersion === 0
+          ? VersionedTransaction.deserialize(Buffer.from(built.txBase64, 'base64'))
+          : Transaction.from(Buffer.from(built.txBase64, 'base64'));
+        const [sTopup, sSale, sTip] = await sol.signAllTransactions<Transaction | VersionedTransaction>([topupTx, saleTx, tipTx]);
+        const ser = (t: Transaction | VersionedTransaction) => (t instanceof VersionedTransaction
+          ? Buffer.from(t.serialize()) : t.serialize({ requireAllSignatures: false, verifySignatures: false })).toString('base64');
+        signedB64 = ser(sSale);
+        signedAux = { topup: ser(sTopup), tip: ser(sTip) };
+      } else if (built.txVersion === 0) {
+        // ME's v0+ALT variant — already carries ME's cosigner signature over
+        // this exact message; Phantom only fills the seller slot.
+        const vtx = VersionedTransaction.deserialize(Buffer.from(built.txBase64, 'base64'));
+        const signedV = await sol.signTransaction(vtx);
+        signedB64 = Buffer.from(signedV.serialize()).toString('base64');
+      } else {
+        const tx = Transaction.from(Buffer.from(built.txBase64, 'base64'));
+        const signed = await sol.signTransaction(tx);
+        signedB64 = signed.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64');
+      }
       if (!isCurrent()) return;
 
       // C — POST-SIGN freshness re-check. Fails CLOSED (opposite of step
@@ -386,8 +438,10 @@ export default function MeSellPage() {
 
       // D — send. A resolved request here means SUBMITTED, not SUCCESS —
       // there is deliberately no "done" value reachable straight from it.
-      const endpoint = built.source === 'bridge' ? 'submit-bridge' : 'submit';
-      const body = built.source === 'bridge'
+      const endpoint = signedAux ? 'submit-bundle' : built.source === 'bridge' ? 'submit-bridge' : 'submit';
+      const body = signedAux
+        ? { signedTopupTx: signedAux.topup, signedTx: signedB64, signedTipTx: signedAux.tip, digest: built.digest }
+        : built.source === 'bridge'
         ? {
           signedTx: signedB64, seller: built.seller, tokenMint: built.intent.mint,
           auctionHouseAddress: built.intent.auctionHouse, buyer: built.intent.buyer,
@@ -496,7 +550,7 @@ export default function MeSellPage() {
               <Row label="Price">{info.priceSol} SOL</Row>
               <Row label="Standard">
                 {info.standardSupported
-                  ? <span style={{ color: 'var(--vl-green-primary)' }}>{info.standard === 'mplCore' ? 'MPL Core' : 'Programmable NFT (pNFT)'}</span>
+                  ? <span style={{ color: 'var(--vl-green-primary)' }}>{info.standard === 'mplCore' ? 'MPL Core' : info.standard === 'legacy' ? 'Legacy NFT' : 'Programmable NFT (pNFT)'}</span>
                   : <span style={{ color: 'var(--vl-red-primary)', fontWeight: 700 }}>
                     unsupported{info.standard ? ` (${info.standard})` : ' (unknown)'} — accept blocked
                   </span>}
@@ -527,9 +581,19 @@ export default function MeSellPage() {
                     </div>
                     {info.missingLamports > 0 && (
                       <div style={{ marginBottom: 12 }}>
-                        <CtaButton onClick={() => void doTopup()} disabled={topupBusy} block>
-                          {topupBusy ? 'Topping up…' : `Top up ${info.missingSol.toFixed(6)} SOL to escrow`}
+                        <CtaButton onClick={() => void doBuild(true)} disabled={buildBusy || !info.standardSupported} block>
+                          {buildBusy ? 'Building bundle…' : `Top up ${info.missingSol.toFixed(4)} SOL + Accept — atomic Jito bundle`}
                         </CtaButton>
+                        <div style={{ fontSize: 10, color: 'var(--vl-text-muted)', marginTop: 4, marginBottom: 12 }}>
+                          Top-up, sale and tip land together in one block or not at all — the top-up can&apos;t get stranded in the buyer&apos;s escrow.
+                        </div>
+                        <button type="button" onClick={() => {
+                          if (window.confirm('Standalone top-up is a separate tx: if the accept then fails, or anyone sells into another bid on this escrow first, the SOL is gone for good. Continue?')) void doTopup();
+                        }} disabled={topupBusy}
+                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 10,
+                            color: 'var(--vl-red-primary)', textDecoration: 'underline' }}>
+                          {topupBusy ? 'Topping up…' : 'top up only (separate tx, unsafe)'}
+                        </button>
                         {topupSig && (
                           <div style={{ fontSize: 11, color: 'var(--vl-green-primary)', marginTop: 6 }}>
                             topped up: <a href={`https://solscan.io/tx/${topupSig}`} target="_blank" rel="noopener noreferrer"
@@ -540,15 +604,12 @@ export default function MeSellPage() {
                       </div>
                     )}
 
-                    <CtaButton onClick={() => void doBuild()} disabled={buildBusy || info.missingLamports > 0 || !info.standardSupported} block>
+                    {info.missingLamports === 0 && <CtaButton onClick={() => void doBuild()} disabled={buildBusy || !info.standardSupported} block>
                       {buildBusy ? 'Building…' : 'Build Accept Tx'}
-                    </CtaButton>
-                    {info.missingLamports > 0 && (
-                      <div style={{ fontSize: 10, color: 'var(--vl-text-muted)', marginTop: 4 }}>Top up first — escrow can&apos;t cover price+royalty yet.</div>
-                    )}
+                    </CtaButton>}
                     {!info.standardSupported && (
                       <div style={{ fontSize: 10, color: 'var(--vl-red-primary)', marginTop: 4 }}>
-                        This tool only has verified-safe evidence for pNFT and MPL Core offer accepts.
+                        This tool only has verified-safe evidence for pNFT, MPL Core and legacy offer accepts.
                       </div>
                     )}
 
@@ -573,9 +634,23 @@ export default function MeSellPage() {
                           {built.cosignerPubkey && <> — ME cosigner: <span style={MONO}>{short(built.cosignerPubkey)}</span></>}
                           {' '}(pre-signed)
                         </div>
+                        {built.bundle ? (
+                          <div style={{ ...MONO, fontSize: 11, color: 'var(--vl-text-primary)', lineHeight: 1.7, marginBottom: 4 }}>
+                            <div>1. top-up → escrow {short(built.bundle.escrowPda)}: <b>{(built.bundle.topupLamports / 1e9).toFixed(6)} SOL</b></div>
+                            <div>2. accept offer: +{info.sellerProceedsSol.toFixed(6)} SOL</div>
+                            <div>3. Jito tip: {(built.bundle.tipLamports / 1e9).toFixed(4)} SOL</div>
+                            <div style={{ color: 'var(--vl-green-primary)' }}>
+                              net ≈ {(info.sellerProceedsSol - (built.bundle.topupLamports + built.bundle.tipLamports) / 1e9).toFixed(4)} SOL
+                              {' '}· escrow left after sim: {(built.bundle.simEscrowLeftoverLamports / 1e9).toFixed(6)}
+                            </div>
+                          </div>
+                        ) : (
+                        (simBusy || simFailed) && (
                         <CtaButton onClick={() => void doSimulate()} disabled={simBusy} block>
-                          {simBusy ? 'Simulating…' : 'Simulate'}
+                          {simBusy ? 'Simulating…' : 'Re-simulate'}
                         </CtaButton>
+                        )
+                        )}
 
                         {sim && (
                           <div style={{ marginTop: 10, padding: '8px 12px', fontSize: 11, borderRadius: 5, ...MONO,
@@ -590,7 +665,9 @@ export default function MeSellPage() {
                         {sim && !simFailed && outcome == null && (
                           <div style={{ marginTop: 14 }}>
                             <CtaButton onClick={() => void doSubmit()} disabled={submitBusy} block>
-                              {submitBusy ? 'Signing & submitting…' : `Sign & Submit — ${built.priceSol} SOL`}
+                              {submitBusy ? 'Signing & submitting…' : built.bundle
+                                ? `Sign & Send Bundle — top-up ${(built.bundle.topupLamports / 1e9).toFixed(4)} + sell ${built.priceSol} SOL`
+                                : `Sign & Submit — ${built.priceSol} SOL`}
                             </CtaButton>
                           </div>
                         )}

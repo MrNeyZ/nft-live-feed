@@ -87,7 +87,7 @@
  * explicitly warns is a real, dynamic part of this instruction shape.
  */
 
-import { PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
+import { PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { deriveBuyerEscrowPda } from './me-bid-escrow';
 
@@ -102,20 +102,24 @@ const SYSVAR_RENT_ID = 'SysvarRent111111111111111111111111111111111';
 const AUTH_RULES_PROGRAM_ID = 'auth9SigNpDKz4sJJ1DfCTuZrZNSAgh9sFD3rboVmgg';
 const MPL_CORE_PROGRAM_ID = 'CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d';
 
-export type MeSellStandard = 'pnft' | 'mplCore';
+export type MeSellStandard = 'pnft' | 'mplCore' | 'legacy';
 /** The full allowlist — legacy/Token-2022/cNFT/SFT are intentionally absent
  *  (MS-6): no real evidence of this tool successfully accepting an offer
  *  on those standards exists yet. Extend only after capturing real
  *  evidence, the same way pnft/mplCore were established above. */
-export const SUPPORTED_STANDARDS: readonly MeSellStandard[] = ['pnft', 'mplCore'];
+export const SUPPORTED_STANDARDS: readonly MeSellStandard[] = ['pnft', 'mplCore', 'legacy'];
 
 interface M2IxTemplate {
   /** lowercase hex, 16 chars (8 bytes) */
   discriminatorHex: string;
   /** total instruction data length in bytes, including discriminator+price+tail */
   dataLength: number;
-  /** hex of the bytes AFTER discriminator(8)+price(8) — must match exactly
-   *  for the one request shape this tool ever sends. */
+  /** byte offset of the u64LE price; default 8 (right after the
+   *  discriminator). Legacy puts 2 bump bytes in between. */
+  priceOffset?: number;
+  /** hex of the bytes AFTER the price — must match exactly for the one
+   *  request shape this tool ever sends. 'x' = wildcard nibble (only used
+   *  for legacy's buyer_expiry, which is the buyer's own field). */
   tailHex: string;
 }
 interface M2VariantTemplate {
@@ -146,6 +150,23 @@ const VARIANTS: readonly M2VariantTemplate[] = [
     executeSaleAccountCount: 22,
     standardProgramId: MPL_CORE_PROGRAM_ID,
   },
+  // Legacy (V1_NFT, SPL Token) — evidence 2026-10-01: ME's own sell_now
+  // build for MetaHelix Token #5196 (87mJA7os…, creators 0%/100%),
+  // simulated against mainnet: err null, M2 log royalty 0. Data =
+  // disc ‖ 2 bump bytes ‖ price ‖ token_size=1 ‖ (execute: buyer_expiry ‖)
+  // seller_expiry=-1 ‖ (execute: maker_fee 0, taker_fee 200). Execute
+  // accounts = LEGACY_EXECUTE_BASE_ACCOUNTS + every creator.
+  {
+    standard: 'legacy',
+    sell: { discriminatorHex: '33e685a4017f83ad', dataLength: 34, priceOffset: 10, tailHex: '0100000000000000ffffffffffffffff' },
+    executeSale: {
+      discriminatorHex: '5bdc31dfcc8135c1', dataLength: 46, priceOffset: 10,
+      tailHex: '0100000000000000xxxxxxxxxxxxxxxxffffffffffffffff0000c800',
+    },
+    sellAccountCount: 15,
+    executeSaleAccountCount: 23,
+    standardProgramId: TOKEN_PROGRAM_ID,
+  },
 ];
 
 export type AuditResult = { ok: true } | { ok: false; reason: string };
@@ -161,7 +182,32 @@ export interface FrozenMeSellIntent {
   /** exact integer lamports, as a decimal string — never a float. */
   priceLamports: string;
   standard: MeSellStandard;
+  /** ALL creator addresses from the NFT's own metadata (DAS `creators`,
+   *  zero-share ones included), when known. pNFT + legacy. ExecuteSaleV2
+   *  appends EVERY creator as a remaining account, so its account count is
+   *  PNFT_EXECUTE_BASE_ACCOUNTS + creators.length — confirmed on two real
+   *  ME accept-offer bundles (2026-09-19): Claynosaurz #6669 (creators
+   *  0%/100% -> 29 accounts) and Trippin' Ape Tribe #3881 (0%/50%/50% ->
+   *  30 accounts); in both, every creator address, the zero-share one
+   *  included, is present in the instruction. Absent/empty -> the old
+   *  fixed count (29) applies unchanged. */
+  creators?: readonly string[];
 }
+
+/** The subset of a transaction the auditor actually reads. A legacy
+ *  `Transaction` satisfies it structurally; a versioned tx is adapted to it
+ *  (me-sell-vtx.ts) after its lookup-table accounts are resolved. */
+export interface AuditableTx {
+  signatures: ReadonlyArray<{ publicKey: PublicKey; signature: Buffer | Uint8Array | null }>;
+  feePayer?: PublicKey | null;
+  recentBlockhash?: string | null;
+  instructions: TransactionInstruction[];
+}
+
+/** pNFT ExecuteSaleV2 accounts excluding the per-creator tail. */
+export const PNFT_EXECUTE_BASE_ACCOUNTS = 27;
+/** Legacy ExecuteSaleV2 accounts excluding the per-creator tail. */
+export const LEGACY_EXECUTE_BASE_ACCOUNTS = 21;
 
 function u64leHex(decimalLamports: string): string {
   const n = BigInt(decimalLamports);
@@ -183,13 +229,16 @@ function checkInstructionData(ix: TransactionInstruction, tmpl: M2IxTemplate, pr
   if (discHex !== tmpl.discriminatorHex) {
     return fail(`${label}_discriminator: expected ${tmpl.discriminatorHex}, got ${discHex}`);
   }
-  const priceHex = data.subarray(8, 16).toString('hex');
+  const priceAt = tmpl.priceOffset ?? 8;
+  const priceHex = data.subarray(priceAt, priceAt + 8).toString('hex');
   const expectedPriceHex = u64leHex(priceLamports);
   if (priceHex !== expectedPriceHex) {
     return fail(`${label}_price_mismatch: expected ${priceLamports} lamports (${expectedPriceHex}), instruction encodes ${priceHex}`);
   }
-  const tailHex = data.subarray(16).toString('hex');
-  if (tailHex !== tmpl.tailHex) {
+  const tailHex = data.subarray(priceAt + 8).toString('hex');
+  const tailOk = tailHex.length === tmpl.tailHex.length
+    && [...tmpl.tailHex].every((c, i) => c === 'x' || c === tailHex[i]);
+  if (!tailOk) {
     return fail(`${label}_unexpected_tail_bytes: expected ${tmpl.tailHex}, got ${tailHex} (request shape changed — refusing rather than guessing what changed)`);
   }
   return { ok: true };
@@ -202,7 +251,7 @@ function checkInstructionData(ix: TransactionInstruction, tmpl: M2IxTemplate, pr
  * submit-bridge revalidation — one set of rules, everywhere.
  */
 export function auditMeSellTransaction(
-  tx: Transaction,
+  tx: AuditableTx,
   intent: FrozenMeSellIntent,
   expectSellerSignature: 'absent' | 'present',
 ): AuditResult {
@@ -292,8 +341,15 @@ export function auditMeSellTransaction(
   if (sellIx.keys.length !== variant.sellAccountCount) {
     return fail(`sell_account_count: expected ${variant.sellAccountCount}, got ${sellIx.keys.length}`);
   }
-  if (executeIx.keys.length !== variant.executeSaleAccountCount) {
-    return fail(`execute_sale_account_count: expected ${variant.executeSaleAccountCount}, got ${executeIx.keys.length}`);
+  const creatorsKnown = variant.standard !== 'mplCore' && !!intent.creators && intent.creators.length > 0;
+  // Legacy has a single real sample — its creator-tail rule is only trusted
+  // with the NFT's creators in hand; without them, fail closed.
+  if (variant.standard === 'legacy' && !creatorsKnown) return fail('legacy_creators_unknown');
+  const expectedExecuteCount = !creatorsKnown
+    ? variant.executeSaleAccountCount
+    : (variant.standard === 'legacy' ? LEGACY_EXECUTE_BASE_ACCOUNTS : PNFT_EXECUTE_BASE_ACCOUNTS) + intent.creators!.length;
+  if (executeIx.keys.length !== expectedExecuteCount) {
+    return fail(`execute_sale_account_count: expected ${expectedExecuteCount}, got ${executeIx.keys.length}`);
   }
 
   const sellKeys = keySet(sellIx);
@@ -311,6 +367,12 @@ export function auditMeSellTransaction(
       if (!keys.has(SYSVAR_RENT_ID)) return fail(`${label}_sysvar_rent_missing`);
     }
     if (!keys.has(variant.standardProgramId)) return fail(`${label}_standard_program_missing: ${variant.standardProgramId}`);
+  }
+
+  if (creatorsKnown) {
+    for (const c of intent.creators!) {
+      if (!executeKeys.has(c)) return fail(`execute_sale_creator_missing: ${c}`);
+    }
   }
 
   if (!sellKeys.has(intent.seller)) return fail('sell_seller_missing');
@@ -333,7 +395,7 @@ export function auditMeSellTransaction(
     return fail('buyer_escrow_pda_missing_from_execute_sale');
   }
 
-  if (variant.standard === 'pnft') {
+  if (variant.standard !== 'mplCore') {
     const mintPk = new PublicKey(intent.mint);
     const sellerPk = new PublicKey(intent.seller);
     const metadataPda = PublicKey.findProgramAddressSync(

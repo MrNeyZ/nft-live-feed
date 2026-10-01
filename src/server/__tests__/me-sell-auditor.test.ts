@@ -278,6 +278,65 @@ check('wrong account count (one extra account appended) -> rejected', () => {
   assert.strictEqual(r.ok, false);
 });
 
+// ── creator-aware ExecuteSaleV2 account count (pNFT) ─────────────────────
+// Evidence (real ME accept-offer bundles, 2026-09-19): Claynosaurz #6669
+// creators 0%/100% -> 29 execute accounts; Trippin' Ape Tribe #3881
+// creators 0%/50%/50% -> 30. Every creator (zero-share included) is present.
+console.log('pNFT creator-aware account count');
+function withCreators(fx: Fixture, creators: PublicKey[]): Fixture {
+  const required = fx.executeIx.keys.slice(0, 13); // the 13 identity/program accounts (see buildPnftFixture)
+  const total = 27 + creators.length;
+  const filler = Array.from({ length: total - required.length - creators.length }, () => ({ pubkey: rand(), isSigner: false, isWritable: true }));
+  const creatorKeys = creators.map((pubkey) => ({ pubkey, isSigner: false, isWritable: true }));
+  fx.executeIx.keys = [...required, ...creatorKeys, ...filler];
+  return fx;
+}
+function intentWithCreators(fx: Fixture, creators: PublicKey[]): FrozenMeSellIntent {
+  return { ...intentFor(fx, 'pnft'), creators: creators.map((c) => c.toBase58()) };
+}
+check('2 creators (0%/100%), 29 accounts, creators declared -> ok (the historical Claynosaurz shape)', () => {
+  const c = [rand(), rand()]; const fx = withCreators(buildPnftFixture(), c);
+  assert.strictEqual(fx.executeIx.keys.length, 29);
+  const r = auditMeSellTransaction(buildTx(fx), intentWithCreators(fx, c), 'absent');
+  assert.strictEqual(r.ok, true, r.ok ? '' : r.reason);
+});
+check('3 creators (0%/50%/50%), 30 accounts, creators declared -> ok (the Trippin\' Ape shape)', () => {
+  const c = [rand(), rand(), rand()]; const fx = withCreators(buildPnftFixture(), c);
+  assert.strictEqual(fx.executeIx.keys.length, 30);
+  const r = auditMeSellTransaction(buildTx(fx), intentWithCreators(fx, c), 'absent');
+  assert.strictEqual(r.ok, true, r.ok ? '' : r.reason);
+});
+check('1 creator, 28 accounts, creators declared -> ok', () => {
+  const c = [rand()]; const fx = withCreators(buildPnftFixture(), c);
+  const r = auditMeSellTransaction(buildTx(fx), intentWithCreators(fx, c), 'absent');
+  assert.strictEqual(r.ok, true, r.ok ? '' : r.reason);
+});
+check('30-account tx WITHOUT declared creators -> still rejected (legacy fixed count 29 unchanged)', () => {
+  const c = [rand(), rand(), rand()]; const fx = withCreators(buildPnftFixture(), c);
+  const r = auditMeSellTransaction(buildTx(fx), intentFor(fx, 'pnft'), 'absent');
+  assert.strictEqual(r.ok, false);
+});
+check('3 creators declared but tx carries only 29 accounts -> rejected', () => {
+  const c = [rand(), rand(), rand()]; const fx = withCreators(buildPnftFixture(), c);
+  fx.executeIx.keys.pop();
+  const r = auditMeSellTransaction(buildTx(fx), intentWithCreators(fx, c), 'absent');
+  assert.strictEqual(r.ok, false);
+  if (!r.ok) assert.ok(r.reason.startsWith('execute_sale_account_count'), r.reason);
+});
+check('right count but a declared creator is absent from ExecuteSale -> rejected', () => {
+  const c = [rand(), rand(), rand()]; const fx = withCreators(buildPnftFixture(), c);
+  const idx = fx.executeIx.keys.findIndex((k) => k.pubkey.equals(c[1]));
+  fx.executeIx.keys[idx] = { pubkey: rand(), isSigner: false, isWritable: true };
+  const r = auditMeSellTransaction(buildTx(fx), intentWithCreators(fx, c), 'absent');
+  assert.strictEqual(r.ok, false);
+  if (!r.ok) assert.ok(r.reason.startsWith('execute_sale_creator_missing'), r.reason);
+});
+check('creators declared for an MPL Core intent -> ignored (Core count unchanged)', () => {
+  const fx = buildCoreFixture();
+  const r = auditMeSellTransaction(buildTx(fx), { ...intentFor(fx, 'mplCore'), creators: [rand().toBase58(), rand().toBase58()] }, 'absent');
+  assert.strictEqual(r.ok, true, r.ok ? '' : r.reason);
+});
+
 // ── envelope ────────────────────────────────────────────────────────────
 console.log('envelope');
 check('wrong fee payer -> rejected', () => {
@@ -372,9 +431,56 @@ check('pnft fixture with intent.standard=mplCore -> rejected (standard mismatch)
 });
 check('unsupported standard string in frozen intent -> rejected before any structural check', () => {
   const fx = buildPnftFixture();
-  const r = auditMeSellTransaction(buildTx(fx), { ...intentFor(fx, 'pnft'), standard: 'legacy' as unknown as 'pnft' }, 'absent');
+  const r = auditMeSellTransaction(buildTx(fx), { ...intentFor(fx, 'pnft'), standard: 'token2022' as unknown as 'pnft' }, 'absent');
   assert.strictEqual(r.ok, false);
 });
+
+// ── legacy (V1_NFT) — REAL ME-built bytes, captured 2026-10-01 ───────────
+// MetaHelix Token #5196 accept at 1.5 SOL; this exact tx simulated err:null
+// on mainnet (M2 log royalty 0) before being saved as the fixture.
+console.log('legacy (real ME sell_now bytes)');
+{
+  const { readFileSync } = require('fs');
+  const { join } = require('path');
+  const raw = Buffer.from(readFileSync(join(__dirname, 'fixtures/me-sell-legacy-metahelix.b64'), 'utf8'), 'base64');
+  const legacyTx = (): Transaction => Transaction.from(raw);
+  const legacyIntent: FrozenMeSellIntent = {
+    seller: '5uvxoHj2NTqh1agKpAvSpBJFfqZcLXz4onnZko3U6Q7n', mint: '87mJA7osSEgqgG4BVgKdpd3ANk1K5QDUU9BJ2MYQSxJ2',
+    buyer: '217P1WkME6NUVkR6HHfRQne79PiJVkSexEiGPS4tkXvu', auctionHouse: 'E8cU1WiRWjanGxmn96ewBgk9vPTcL6AEZ1t6F6fkgUWe',
+    priceLamports: '1500000000', standard: 'legacy',
+    creators: ['Ep4sVmjkxQ3p8gFngbDGdXKbSHKvY3YtNQska5cSm6a6', 'HELXmeL5Lnj5wrY2i9HXBHh68ePMA7AJs2KVHnWzTfee'],
+  };
+  check('legacy: real ME tx -> ok', () => {
+    const r = auditMeSellTransaction(legacyTx(), legacyIntent, 'absent');
+    assert.strictEqual(r.ok, true, r.ok ? '' : r.reason);
+  });
+  check('legacy: creators unknown -> rejected (fail closed)', () => {
+    const r = auditMeSellTransaction(legacyTx(), { ...legacyIntent, creators: undefined }, 'absent');
+    assert.strictEqual(r.ok, false);
+  });
+  check('legacy: wrong frozen price -> rejected', () => {
+    const r = auditMeSellTransaction(legacyTx(), { ...legacyIntent, priceLamports: '1400000000' }, 'absent');
+    assert.ok(!r.ok && /price_mismatch/.test(r.reason));
+  });
+  check('legacy: tampered execute price -> rejected', () => {
+    const tx = legacyTx();
+    const m2 = tx.instructions.filter((ix) => ix.programId.equals(M2_PROGRAM_ID));
+    m2[1].data = Buffer.from(m2[1].data); m2[1].data.writeBigUInt64LE(1n, 10);
+    const r = auditMeSellTransaction(tx, legacyIntent, 'absent');
+    assert.strictEqual(r.ok, false);
+  });
+  check('legacy: tampered taker fee tail -> rejected', () => {
+    const tx = legacyTx();
+    const m2 = tx.instructions.filter((ix) => ix.programId.equals(M2_PROGRAM_ID));
+    m2[1].data = Buffer.from(m2[1].data); m2[1].data[m2[1].data.length - 2] = 0xff;
+    const r = auditMeSellTransaction(tx, legacyIntent, 'absent');
+    assert.ok(!r.ok && /tail/.test(r.reason));
+  });
+  check('legacy tx with intent.standard=pnft -> rejected (standard mismatch)', () => {
+    const r = auditMeSellTransaction(legacyTx(), { ...legacyIntent, standard: 'pnft' }, 'absent');
+    assert.strictEqual(r.ok, false);
+  });
+}
 
 console.log(`\n${passed} passed, ${failures} failed`);
 if (failures > 0) process.exit(1);

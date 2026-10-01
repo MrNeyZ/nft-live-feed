@@ -30,6 +30,7 @@
     "test:resize-claim": "ts-node src/server/__tests__/tools-resize-claim.test.ts",
     "test:me-sell-auditor": "ts-node src/server/__tests__/me-sell-auditor.test.ts",
     "test:me-sell": "ts-node src/server/__tests__/tools-me-sell.test.ts",
+    "test:me-sell-vtx": "ts-node src/server/__tests__/me-sell-vtx.test.ts",
     "test:me-sell-frontend": "O=$(mktemp -d) && cd frontend && npx tsc src/app/tools/me-sell/logic.ts src/app/tools/me-sell/logic.test.ts --outDir \"$O\" --module commonjs --target es2020 --esModuleInterop --strict --skipLibCheck --resolveJsonModule --rootDir src && NODE_PATH=\"$PWD/node_modules\" node \"$O/app/tools/me-sell/logic.test.js\" && rm -rf \"$O\"",
     "test:holders-tool": "ts-node src/tools-holders/__tests__/analyze.test.ts",
     "test:collection-analyzer": "ts-node src/tools-collection-analyzer/__tests__/collection-analyzer.test.ts",

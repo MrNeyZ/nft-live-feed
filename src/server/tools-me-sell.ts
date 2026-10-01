@@ -75,8 +75,10 @@
  */
 
 import { Router, Request, Response, RequestHandler } from 'express';
+import bs58 from 'bs58';
 import {
-  PublicKey, Connection, Transaction, SystemProgram,
+  PublicKey, Connection, Transaction, SystemProgram, type VersionedTransaction, type AddressLookupTableAccount,
+  type TransactionInstruction,
 } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { rateLimit } from './rate-limit';
@@ -110,9 +112,18 @@ import {
   checkBlockhashFreshness, type BlockhashInfo, type ChainClient,
 } from './tools-me-bids';
 import {
+  TX_WIRE_LIMIT, decodeVersionedTxFromBytes, decodeVersionedTxFromBase64,
+  versionedMessageHashHex, toAuditableTx, verifyVersionedSignatures,
+} from './me-sell-vtx';
+import {
   auditMeSellTransaction, SUPPORTED_STANDARDS,
   type FrozenMeSellIntent, type MeSellStandard,
 } from './me-sell-auditor';
+import {
+  type BundleAux, buildAuxTxs, unsignedB64, checkSignedAux, combineForSim, sendJitoBundle,
+  MAX_ESCROW_LEFTOVER_LAMPORTS, JITO_TIP_LAMPORTS,
+} from './me-sell-bundle';
+const bs58Encode = (b: Uint8Array | Buffer): string => bs58.encode(b);
 
 const ME_API_BASE = 'https://api-mainnet.magiceden.dev/v2';
 const FETCH_TIMEOUT_MS = 10_000;
@@ -237,6 +248,16 @@ function createMeGet(transport: MeHttpTransport, keys: MeApiKeyProvider) {
 export interface MeSellSignatureStatus { confirmationStatus: 'processed' | 'confirmed' | 'finalized' | null; err: unknown }
 export interface MeSellChainClient extends ChainClient {
   getSignatureStatuses(signatures: string[]): Promise<Array<MeSellSignatureStatus | null>>;
+  /** Versioned (v0) path — used only when ME's legacy tx exceeds the wire
+   *  limit and its own v0 variant is taken instead. Optional so existing
+   *  test doubles keep compiling; the routes answer 501 when absent. */
+  simulateVersionedTransaction?(vtx: VersionedTransaction): Promise<{ err: unknown; logs: string[]; unitsConsumed: number | null }>;
+  sendRawBytes?(raw: Buffer): Promise<string>;
+  getAddressLookupTable?(key: PublicKey): Promise<AddressLookupTableAccount | null>;
+  /** Top-up bundle path only. Throws on RPC failure (never "0"). */
+  getBalanceStrict?(key: PublicKey): Promise<number>;
+  /** sigVerify:false simulation returning post-sim lamports of `addresses`. */
+  simulateWithBalances?(vtx: VersionedTransaction, addresses: PublicKey[]): Promise<{ err: unknown; logs: string[]; unitsConsumed: number | null; lamports: Array<number | null> }>;
 }
 
 function defaultChainClient(conn: Connection): MeSellChainClient {
@@ -253,6 +274,23 @@ function defaultChainClient(conn: Connection): MeSellChainClient {
     async getSignatureStatuses(signatures: string[]) {
       const res = await conn.getSignatureStatuses(signatures, { searchTransactionHistory: true });
       return res.value.map((v) => (v ? { confirmationStatus: v.confirmationStatus ?? null, err: v.err ?? null } : null));
+    },
+    async simulateVersionedTransaction(vtx: VersionedTransaction) {
+      const sim = await conn.simulateTransaction(vtx, { sigVerify: false, commitment: 'confirmed' });
+      return { err: sim.value.err, logs: sim.value.logs ?? [], unitsConsumed: sim.value.unitsConsumed ?? null };
+    },
+    sendRawBytes: (raw: Buffer) => conn.sendRawTransaction(raw, { skipPreflight: false, maxRetries: 3 }),
+    async getAddressLookupTable(key: PublicKey) { return (await conn.getAddressLookupTable(key)).value; },
+    getBalanceStrict: (key: PublicKey) => conn.getBalance(key, 'confirmed'),
+    async simulateWithBalances(vtx: VersionedTransaction, addresses: PublicKey[]) {
+      const sim = await conn.simulateTransaction(vtx, {
+        sigVerify: false, commitment: 'confirmed',
+        accounts: { encoding: 'base64', addresses: addresses.map((a) => a.toBase58()) },
+      });
+      return {
+        err: sim.value.err, logs: sim.value.logs ?? [], unitsConsumed: sim.value.unitsConsumed ?? null,
+        lamports: (sim.value.accounts ?? []).map((a) => (a ? a.lamports : null)),
+      };
     },
   };
 }
@@ -315,9 +353,14 @@ async function fetchRoyaltyBp(mint: string): Promise<number | null> {
  *  injectable (same pre-existing, uninjectable-`fetch` pattern this file
  *  already uses for `fetchRoyaltyBp`/`fetchNftDisplay`/`fetchEscrowBalanceFresh`;
  *  not changed here), but the mapping this decision actually rests on is. */
+function isSupportedStandard(s: unknown): s is MeSellStandard {
+  return SUPPORTED_STANDARDS.includes(s as MeSellStandard);
+}
+
 export function mapDasInterfaceToStandard(iface: string | undefined): MeSellStandard | null {
   if (iface === 'ProgrammableNFT') return 'pnft';
   if (iface === 'MplCoreAsset') return 'mplCore';
+  if (iface === 'V1_NFT' || iface === 'Legacy_NFT') return 'legacy';
   return null;
 }
 
@@ -335,6 +378,33 @@ async function fetchNftStandard(mint: string): Promise<MeSellStandard | null> {
     const j = await r.json() as { result?: { interface?: string } };
     return mapDasInterfaceToStandard(j.result?.interface);
   } catch { return null; }
+}
+
+/** All creator addresses from the NFT's own metadata (DAS `creators`,
+ *  zero-share ones included) — the pNFT ExecuteSaleV2 auditor derives the
+ *  expected account count from this (27 + creators.length). null = lookup
+ *  failed -> the auditor falls back to its fixed count, which fails closed
+ *  for any NFT whose real count differs. */
+async function fetchNftCreators(mint: string): Promise<string[] | null> {
+  const apiKey = process.env.HELIUS_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const r = await fetch(`https://mainnet.helius-rpc.com/?api-key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getAsset', params: { id: mint } }),
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!r.ok) return null;
+    const j = await r.json() as { result?: { creators?: Array<{ address?: string }> } };
+    const list = j.result?.creators;
+    if (!Array.isArray(list)) return null;
+    const out = list.map((c) => c.address).filter((a): a is string => typeof a === 'string' && isValidPubkeyString(a));
+    return out.length === list.length ? out : null;
+  } catch { return null; }
+}
+function isValidPubkeyString(a: string): boolean {
+  try { new PublicKey(a); return true; } catch { return false; }
 }
 
 async function fetchNftDisplay(mint: string): Promise<{ name: string | null; image: string | null }> {
@@ -436,6 +506,11 @@ interface DigestEntry {
   intent: FrozenMeSellIntent;
   blockhashInfo: BlockhashInfo;
   expiresAt: number;
+  /** 0 = ME's v0 variant (used when the legacy tx exceeds the wire limit);
+   *  absent = the original legacy `Transaction` flow, unchanged. */
+  txVersion?: 0;
+  /** Present only for an atomic top-up + accept Jito bundle build. */
+  bundle?: BundleAux;
 }
 const DIGEST_TTL_MS = 5 * 60_000;
 const DIGEST_CACHE_MAX = 500;
@@ -462,6 +537,17 @@ class DigestCache {
   }
 }
 
+function bundleResponse(b: { aux: BundleAux; topupB64: string; tipB64: string; sim: { unitsConsumed: number | null; leftoverLamports: number } }) {
+  return {
+    bundle: {
+      topupTxBase64: b.topupB64, tipTxBase64: b.tipB64,
+      escrowPda: b.aux.escrowPda, escrowLamports: b.aux.escrowLamportsAtBuild,
+      topupLamports: b.aux.topupLamports, tipLamports: b.aux.tipLamports,
+      simUnitsConsumed: b.sim.unitsConsumed, simEscrowLeftoverLamports: b.sim.leftoverLamports,
+    },
+  };
+}
+
 // ── Router ───────────────────────────────────────────────────────────────
 
 export interface MeSellDeps {
@@ -478,6 +564,11 @@ export interface MeSellDeps {
    *  because this is new code from the 2026-09-12 hardening pass and needs
    *  a real, network-free regression test. */
   fetchStandard?: (mint: string) => Promise<MeSellStandard | null>;
+  /** Overrides the DAS creators lookup (pNFT auditor account count). */
+  fetchCreators?: (mint: string) => Promise<string[] | null>;
+  /** Top-up bundle path: royalty guess + Jito transport (tests stub both). */
+  fetchRoyaltyBp?: (mint: string) => Promise<number | null>;
+  sendBundle?: (txsB64: string[]) => Promise<{ bundleId: string; accepted: number; errors: string[] }>;
 }
 export interface MeSellTestHooks {
   digestCacheSize: () => number;
@@ -494,6 +585,75 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
   const liveEnabled = deps.liveEnabled ?? liveEnabledFromEnv();
   const marginBlocks = deps.blockhashMarginBlocks ?? blockhashMarginBlocksFromEnv();
   const resolveStandard = deps.fetchStandard ?? fetchNftStandard;
+  const resolveCreators = deps.fetchCreators ?? fetchNftCreators;
+  const resolveRoyaltyBp = deps.fetchRoyaltyBp ?? fetchRoyaltyBp;
+  const sendBundle = deps.sendBundle ?? sendJitoBundle;
+  /** pNFT + legacy; undefined when unknown (pNFT: fixed count, legacy: fails closed). */
+  const creatorsFor = async (standard: MeSellStandard, mint: string): Promise<string[] | undefined> => {
+    if (standard === 'mplCore') return undefined;
+    const c = await resolveCreators(mint);
+    return c && c.length > 0 ? c : undefined;
+  };
+
+  /** Atomic top-up bundle: size the escrow top-up from a real simulation of
+   *  [top-up + ME's sale ixs] (DAS royalty is only the first guess — some
+   *  pNFTs are charged 0 royalty on-chain), then build the top-up + tip txs
+   *  on the sale's own blockhash. Returns an error string on any doubt. */
+  const prepareBundle = async (p: {
+    intent: FrozenMeSellIntent; blockhash: string; saleIxs: TransactionInstruction[]; alts: AddressLookupTableAccount[];
+  }): Promise<{ ok: true; aux: BundleAux; topupB64: string; tipB64: string; sim: { unitsConsumed: number | null; leftoverLamports: number } }
+    | { ok: false; status: number; error: string; detail?: string }> => {
+    if (!chain.getBalanceStrict || !chain.simulateWithBalances) return { ok: false, status: 501, error: 'bundle_not_supported_by_chain_client' };
+    const escrowStr = deriveBuyerEscrowPda(p.intent.auctionHouse, p.intent.buyer);
+    if (!escrowStr) return { ok: false, status: 400, error: 'escrow_pda_derivation_failed' };
+    const escrowPda = new PublicKey(escrowStr);
+    const seller = new PublicKey(p.intent.seller);
+    const royaltyBp = await resolveRoyaltyBp(p.intent.mint);
+    if (royaltyBp == null) return { ok: false, status: 422, error: 'royalty_unknown', detail: 'Could not read royalty — refusing to size a top-up blind.' };
+    let escrowLamports: number;
+    try { escrowLamports = await chain.getBalanceStrict(escrowPda); }
+    catch (err) { return { ok: false, status: 502, error: toClientError(err, 'bundle-escrow-balance') }; }
+    const priceLamports = Number(p.intent.priceLamports);
+    let topupLamports = priceLamports + Math.floor(priceLamports * royaltyBp / 10000) - escrowLamports;
+    if (topupLamports <= 0) return { ok: false, status: 409, error: 'escrow_already_funded', detail: 'Escrow already covers the bid — use the normal accept.' };
+
+    // Up to 2 sims: the second only when the first shows the program took
+    // less than we sent (leftover = our SOL stranded in the buyer's escrow).
+    let sim: Awaited<ReturnType<NonNullable<MeSellChainClient['simulateWithBalances']>>> | null = null;
+    let leftover = 0;
+    for (let round = 0; round < 2; round++) {
+      const vtx = combineForSim({
+        payer: seller, blockhash: p.blockhash, alts: p.alts, saleIxs: p.saleIxs,
+        topupIx: SystemProgram.transfer({ fromPubkey: seller, toPubkey: escrowPda, lamports: topupLamports }),
+      });
+      try { sim = await chain.simulateWithBalances(vtx, [escrowPda]); }
+      catch (err) { return { ok: false, status: 502, error: toClientError(err, 'bundle-simulate') }; }
+      if (sim.err != null) {
+        return { ok: false, status: 422, error: 'bundle_simulation_failed', detail: `${JSON.stringify(sim.err)} | ${sim.logs.slice(-4).join(' | ')}` };
+      }
+      const post = sim.lamports[0];
+      if (post == null) return { ok: false, status: 502, error: 'bundle_sim_missing_escrow_balance' };
+      leftover = post;
+      if (leftover <= MAX_ESCROW_LEFTOVER_LAMPORTS) break;
+      if (round === 1 || leftover >= topupLamports) {
+        return { ok: false, status: 422, error: 'bundle_topup_not_consumed', detail: `sim leaves ${leftover} lamports in escrow` };
+      }
+      topupLamports -= leftover;
+    }
+    if (leftover > MAX_ESCROW_LEFTOVER_LAMPORTS) return { ok: false, status: 422, error: 'bundle_topup_not_consumed' };
+
+    const { topup, tip, tipAccount } = buildAuxTxs({ seller, escrowPda, topupLamports, blockhash: p.blockhash });
+    return {
+      ok: true,
+      aux: {
+        escrowPda: escrowStr, escrowLamportsAtBuild: escrowLamports, requiredLamports: escrowLamports + topupLamports,
+        topupLamports, tipLamports: JITO_TIP_LAMPORTS,
+        tipAccount, topupHash: messageHashHex(topup), tipHash: messageHashHex(tip),
+      },
+      topupB64: unsignedB64(topup), tipB64: unsignedB64(tip),
+      sim: { unitsConsumed: sim?.unitsConsumed ?? null, leftoverLamports: leftover },
+    };
+  };
 
   const router = Router() as Router & { __meSellTestHooks?: MeSellTestHooks };
   const noopLimit: RequestHandler = (_req, _res, next) => next();
@@ -602,9 +762,9 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
 
   // ── Build the accept (Sell + ExecuteSaleV2) tx via ME's instruction API ──
   router.post('/tools/me-sell/build-accept', buildLimit, authMw, async (req: Request, res: Response) => {
-    const { seller, tokenMint, priceSol: priceSolRaw, auctionHouseAddress, buyer, sellerReferral, buyerExpiry } = req.body as {
+    const { seller, tokenMint, priceSol: priceSolRaw, auctionHouseAddress, buyer, sellerReferral, buyerExpiry, bundleTopup } = req.body as {
       seller?: string; tokenMint?: string; priceSol?: number; auctionHouseAddress?: string;
-      buyer?: string; sellerReferral?: string; buyerExpiry?: number;
+      buyer?: string; sellerReferral?: string; buyerExpiry?: number; bundleTopup?: boolean;
     };
     const sellerPk = parsePubkey(seller);
     const mintPk = parsePubkey(tokenMint);
@@ -664,7 +824,7 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
     const q = encodeURIComponent(JSON.stringify([{ type: 'sell_now', ins: insPayload }]));
     const path = `/instructions/batch?q=${q}`;
 
-    interface BatchResult { status: string; value?: { txSigned?: { data?: number[] }; blockhashData?: { lastValidBlockHeight?: number } }; reason?: unknown; }
+    interface BatchResult { status: string; value?: { txSigned?: { data?: number[] }; v0?: { txSigned?: { data?: number[] } }; blockhashData?: { lastValidBlockHeight?: number } }; reason?: unknown; }
     let batch: BatchResult[];
     try {
       batch = await meGet(path);
@@ -688,15 +848,76 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
       return res.status(200).json({ ok: false, error: 'me_response_missing_blockhash_data' });
     }
 
-    let tx: Transaction;
-    try { tx = decodeLegacyTxFromBytes(Buffer.from(src.data)); }
-    catch (err) { return res.status(200).json({ ok: false, error: err instanceof Error ? err.message : String(err) }); }
-
     const intent: FrozenMeSellIntent = {
       seller: sellerPk.toBase58(), mint: mintPk.toBase58(),
       auctionHouse: ahPk.toBase58(), buyer: buyerPk.toBase58(),
       priceLamports, standard,
+      creators: await creatorsFor(standard, mintPk.toBase58()),
     };
+
+    // ME returns TWO variants of the same bundle. The legacy one is the
+    // default and is left completely untouched. Only when it exceeds the
+    // 1232-byte wire limit (pNFT + several creators — e.g. 1376 bytes for
+    // Trippin' Ape Tribe #3881) do we take ME's own cosigned v0+ALT variant
+    // (1040 bytes for that NFT) instead; nothing is rebuilt or re-signed.
+    if (src.data.length > TX_WIRE_LIMIT) {
+      const v0data = entry.value.v0?.txSigned?.data;
+      if (!Array.isArray(v0data) || v0data.length === 0 || v0data.length > TX_WIRE_LIMIT) {
+        return res.status(422).json({
+          ok: false, error: 'me_tx_too_large',
+          detail: `ME's legacy tx is ${src.data.length} bytes (limit ${TX_WIRE_LIMIT}) and it returned no usable v0 variant`
+            + (Array.isArray(v0data) ? ` (v0 is ${v0data.length} bytes)` : ''),
+        });
+      }
+      if (!chain.getAddressLookupTable) return res.status(501).json({ ok: false, error: 'versioned_not_supported_by_chain_client' });
+      let vtx: VersionedTransaction;
+      let auditable: Awaited<ReturnType<typeof toAuditableTx>>;
+      try {
+        vtx = decodeVersionedTxFromBytes(Buffer.from(v0data));
+        auditable = await toAuditableTx(vtx, chain.getAddressLookupTable.bind(chain));
+      } catch (err) {
+        return res.status(422).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      }
+      const audited = auditMeSellTransaction(auditable, intent, 'absent');
+      if (!audited.ok) return res.status(422).json({ ok: false, error: audited.reason });
+      const cosigner = auditable.signatures.find((sg) => sg.publicKey.toBase58() !== intent.seller);
+      if (!cosigner || cosigner.signature == null) {
+        return res.status(409).json({
+          ok: false, error: 'cosign_not_prefilled', needsBridge: true,
+          detail: `ME returned an unsigned cosigner slot in its v0 variant — this backend-only path cannot complete the trade without a browser-session bridge.`,
+        });
+      }
+      let vBundle: Awaited<ReturnType<typeof prepareBundle>> | null = null;
+      if (bundleTopup === true) {
+        const alts: AddressLookupTableAccount[] = [];
+        for (const l of vtx.message.addressTableLookups) {
+          const alt = await chain.getAddressLookupTable(l.accountKey);
+          if (!alt) return res.status(502).json({ ok: false, error: 'alt_unavailable' });
+          alts.push(alt);
+        }
+        vBundle = await prepareBundle({ intent, blockhash: vtx.message.recentBlockhash, saleIxs: auditable.instructions, alts });
+        if (!vBundle.ok) return res.status(vBundle.status).json({ ok: false, error: vBundle.error, detail: vBundle.detail });
+      }
+      const vDigest = versionedMessageHashHex(vtx);
+      digestCache.set(vDigest, {
+        intent, txVersion: 0,
+        blockhashInfo: { blockhash: vtx.message.recentBlockhash, lastValidBlockHeight },
+        expiresAt: now() + DIGEST_TTL_MS,
+        ...(vBundle?.ok ? { bundle: vBundle.aux } : {}),
+      });
+      return res.json({
+        ok: true, digest: vDigest, txVersion: 0,
+        txBase64: Buffer.from(v0data).toString('base64'),
+        cosignerPubkey: cosigner.publicKey.toBase58(),
+        priceSol, priceLamports, standard, lastValidBlockHeight, expiresInMs: DIGEST_TTL_MS,
+        ...(vBundle?.ok ? bundleResponse(vBundle) : {}),
+      });
+    }
+
+    let tx: Transaction;
+    try { tx = decodeLegacyTxFromBytes(Buffer.from(src.data)); }
+    catch (err) { return res.status(200).json({ ok: false, error: err instanceof Error ? err.message : String(err) }); }
+
     let validated: ValidatedSellTx;
     try {
       validated = validateSellStructure(tx, intent, 'absent');
@@ -716,11 +937,17 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
       });
     }
 
+    let lBundle: Awaited<ReturnType<typeof prepareBundle>> | null = null;
+    if (bundleTopup === true) {
+      lBundle = await prepareBundle({ intent, blockhash: tx.recentBlockhash!, saleIxs: tx.instructions, alts: [] });
+      if (!lBundle.ok) return res.status(lBundle.status).json({ ok: false, error: lBundle.error, detail: lBundle.detail });
+    }
     const digest = validated.messageHash;
     digestCache.set(digest, {
       intent,
       blockhashInfo: { blockhash: tx.recentBlockhash!, lastValidBlockHeight },
       expiresAt: now() + DIGEST_TTL_MS,
+      ...(lBundle?.ok ? { bundle: lBundle.aux } : {}),
     });
 
     return res.json({
@@ -733,12 +960,25 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
       standard,
       lastValidBlockHeight,
       expiresInMs: DIGEST_TTL_MS,
+      ...(lBundle?.ok ? bundleResponse(lBundle) : {}),
     });
   });
 
   router.post('/tools/me-sell/simulate', simLimit, authMw, async (req: Request, res: Response) => {
-    const { tx } = req.body as { tx?: string };
+    const { tx, txVersion } = req.body as { tx?: string; txVersion?: number };
     if (!tx || typeof tx !== 'string') return res.status(400).json({ ok: false, error: 'missing_tx' });
+    if (txVersion === 0) {
+      if (!chain.simulateVersionedTransaction) return res.status(501).json({ ok: false, error: 'versioned_not_supported_by_chain_client' });
+      let vtx: VersionedTransaction;
+      try { vtx = decodeVersionedTxFromBase64(tx); }
+      catch (err) { return res.status(400).json({ ok: false, error: err instanceof Error ? err.message : String(err) }); }
+      try {
+        const sim = await chain.simulateVersionedTransaction(vtx);
+        return res.json({ ok: true, err: sim.err, logs: sim.logs, unitsConsumed: sim.unitsConsumed });
+      } catch (err) {
+        return res.status(200).json({ ok: false, error: toClientError(err, 'simulate') });
+      }
+    }
     let decoded: Transaction;
     try { decoded = decodeLegacyTxFromBase64(tx); }
     catch (err) { return res.status(400).json({ ok: false, error: err instanceof Error ? err.message : String(err) }); }
@@ -757,7 +997,7 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
   //    use, just called earlier, on bridge-sourced bytes, before Phantom.
   //    Never caches a digest (the bridge path doesn't use one) and never
   //    touches chain state — pure decode + audit. ──────────────────────────
-  router.post('/tools/me-sell/audit-bridge', simLimit, authMw, (req: Request, res: Response) => {
+  router.post('/tools/me-sell/audit-bridge', simLimit, authMw, async (req: Request, res: Response) => {
     const { tx, seller, tokenMint, auctionHouseAddress, buyer, priceLamports, standard } = req.body as {
       tx?: string; seller?: string; tokenMint?: string; auctionHouseAddress?: string;
       buyer?: string; priceLamports?: string; standard?: string;
@@ -768,8 +1008,8 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
     const buyerPk = parsePubkey(buyer);
     if (!tx || typeof tx !== 'string' || !sellerPk || !mintPk || !ahPk || !buyerPk
       || typeof priceLamports !== 'string' || !/^\d+$/.test(priceLamports)
-      || (standard !== 'pnft' && standard !== 'mplCore')) {
-      return res.status(400).json({ ok: false, error: 'invalid_or_missing_params: tx, seller, tokenMint, auctionHouseAddress, buyer, priceLamports(digit string), standard(pnft|mplCore) required' });
+      || !isSupportedStandard(standard)) {
+      return res.status(400).json({ ok: false, error: 'invalid_or_missing_params: tx, seller, tokenMint, auctionHouseAddress, buyer, priceLamports(digit string), standard(pnft|mplCore|legacy) required' });
     }
     let decoded: Transaction;
     try { decoded = decodeLegacyTxFromBase64(tx); }
@@ -777,6 +1017,7 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
     const intent: FrozenMeSellIntent = {
       seller: sellerPk.toBase58(), mint: mintPk.toBase58(), auctionHouse: ahPk.toBase58(),
       buyer: buyerPk.toBase58(), priceLamports, standard,
+      creators: await creatorsFor(standard, mintPk.toBase58()),
     };
     const audited = auditMeSellTransaction(decoded, intent, 'absent');
     if (!audited.ok) return res.status(422).json({ ok: false, error: audited.reason });
@@ -827,7 +1068,7 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
     const buyerPk = parsePubkey(buyer);
     if (!signedTx || typeof signedTx !== 'string' || !sellerPk || !mintPk || !ahPk || !buyerPk
       || typeof priceLamports !== 'string' || !/^\d+$/.test(priceLamports)
-      || (standard !== 'pnft' && standard !== 'mplCore')
+      || !isSupportedStandard(standard)
       || typeof lastValidBlockHeight !== 'number' || !Number.isFinite(lastValidBlockHeight)) {
       return res.status(400).json({ ok: false, error: 'invalid_or_missing_params: signedTx, seller, tokenMint, auctionHouseAddress, buyer, priceLamports(digit string), standard(pnft|mplCore), lastValidBlockHeight(number, from the bridge\'s own blockhashData) required' });
     }
@@ -858,6 +1099,7 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
         seller: sellerPk.toBase58(), mint: mintPk.toBase58(),
         auctionHouse: ahPk.toBase58(), buyer: buyerPk.toBase58(),
         priceLamports, standard,
+        creators: await creatorsFor(standard, mintPk.toBase58()),
       }, 'present');
     } catch (err) {
       return res.status(409).json({ ok: false, error: `validation_failed: ${err instanceof Error ? err.message : String(err)}` });
@@ -876,6 +1118,66 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
     }
   });
 
+  // Shared signed-sale gates for /submit and /submit-bundle, same order as
+  // before: digest match -> blockhash -> freshness -> [caller extras] ->
+  // consume -> canonical re-audit -> cosigner present -> cryptographic
+  // verification of BOTH signature slots. Returns the exact bytes to send.
+  type Fail = { ok: false; status: number; error: string; detail?: string };
+  type Prechecked = { ok: true; vtx?: VersionedTransaction; tx?: Transaction };
+  const precheckSignedSale = async (signedTx: string, digest: string, entry: DigestEntry): Promise<Prechecked | Fail> => {
+    if (entry.txVersion === 0) {
+      if (!chain.sendRawBytes || !chain.getAddressLookupTable) return { ok: false, status: 501, error: 'versioned_not_supported_by_chain_client' };
+      let vtx: VersionedTransaction;
+      try { vtx = decodeVersionedTxFromBase64(signedTx); }
+      catch (err) { return { ok: false, status: 400, error: err instanceof Error ? err.message : String(err) }; }
+      if (versionedMessageHashHex(vtx) !== digest) return { ok: false, status: 409, error: 'signed_tx_message_does_not_match_digest' };
+      if (vtx.message.recentBlockhash !== entry.blockhashInfo.blockhash) return { ok: false, status: 409, error: 'blockhash_mismatch' };
+      let height: number;
+      try { height = await chain.getBlockHeight(); }
+      catch (err) { return { ok: false, status: 200, error: toClientError(err, 'submit-blockheight') }; }
+      const fresh = checkBlockhashFreshness({ recentBlockhash: vtx.message.recentBlockhash }, entry.blockhashInfo, height, marginBlocks);
+      if (!fresh.ok) return { ok: false, status: 410, error: fresh.code, detail: fresh.detail };
+      return { ok: true, vtx };
+    }
+    let tx: Transaction;
+    try { tx = decodeLegacyTxFromBase64(signedTx); }
+    catch (err) { return { ok: false, status: 400, error: err instanceof Error ? err.message : String(err) }; }
+    if (messageHashHex(tx) !== digest) return { ok: false, status: 409, error: 'signed_tx_message_does_not_match_digest' };
+    if (tx.recentBlockhash !== entry.blockhashInfo.blockhash) return { ok: false, status: 409, error: 'blockhash_mismatch' };
+    let currentBlockHeight: number;
+    try { currentBlockHeight = await chain.getBlockHeight(); }
+    catch (err) { return { ok: false, status: 200, error: toClientError(err, 'submit-blockheight') }; }
+    const freshness = checkBlockhashFreshness(tx, entry.blockhashInfo, currentBlockHeight, marginBlocks);
+    if (!freshness.ok) return { ok: false, status: 410, error: freshness.code, detail: freshness.detail };
+    return { ok: true, tx };
+  };
+  /** Call only AFTER the digest was consumed. */
+  const postcheckSignedSale = async (pre: Prechecked, entry: DigestEntry): Promise<{ ok: true; raw: Buffer } | Fail> => {
+    if (pre.vtx) {
+      const vtx = pre.vtx;
+      let auditable: Awaited<ReturnType<typeof toAuditableTx>>;
+      try { auditable = await toAuditableTx(vtx, chain.getAddressLookupTable!.bind(chain)); }
+      catch (err) { return { ok: false, status: 409, error: `revalidation_failed: ${err instanceof Error ? err.message : String(err)}` }; }
+      const reaudit = auditMeSellTransaction(auditable, entry.intent, 'present');
+      if (!reaudit.ok) return { ok: false, status: 409, error: `revalidation_failed: ${reaudit.reason}` };
+      const cosigned = auditable.signatures.find((sg) => sg.publicKey.toBase58() !== entry.intent.seller);
+      if (!cosigned || cosigned.signature == null) return { ok: false, status: 400, error: 'cosign_missing_at_submit' };
+      if (!verifyVersionedSignatures(vtx)) return { ok: false, status: 400, error: 'invalid_signature' };
+      return { ok: true, raw: Buffer.from(vtx.serialize()) };
+    }
+    const tx = pre.tx!;
+    let validated: ValidatedSellTx;
+    try { validated = validateSellStructure(tx, entry.intent, 'present'); }
+    catch (err) { return { ok: false, status: 409, error: `revalidation_failed: ${err instanceof Error ? err.message : String(err)}` }; }
+    if (!validated.cosignPrefilled) return { ok: false, status: 400, error: 'cosign_missing_at_submit' };
+    // The actual security boundary: cryptographically verifies BOTH
+    // signature slots (seller's just-added signature AND ME's cosign)
+    // against the exact message bytes.
+    if (!tx.verifySignatures(true)) return { ok: false, status: 400, error: 'invalid_signature' };
+    return { ok: true, raw: tx.serialize() };
+  };
+  const sendFail = (res: Response, f: Fail) => res.status(f.status).json({ ok: false, error: f.error, ...(f.detail ? { detail: f.detail } : {}) });
+
   router.post('/tools/me-sell/submit', submitLimit, authMw, async (req: Request, res: Response) => {
     if (!liveEnabled) return res.status(403).json({ ok: false, error: 'live_mode_disabled_server_side' });
     const { signedTx, digest } = req.body as { signedTx?: string; digest?: string };
@@ -886,49 +1188,82 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
     const entry = digestCache.get(digest);
     if (!entry) return res.status(410).json({ ok: false, error: 'digest_not_found_expired_or_already_used' });
     if (entry.expiresAt < now()) { digestCache.consume(digest); return res.status(410).json({ ok: false, error: 'digest_expired' }); }
+    // A bundle build must go out as a bundle — its sale alone would just fail
+    // on the underfunded escrow (or worse, succeed after someone else's top-up
+    // with our intent unexamined).
+    if (entry.bundle) return res.status(409).json({ ok: false, error: 'bundle_build_use_submit_bundle' });
 
-    let tx: Transaction;
-    try { tx = decodeLegacyTxFromBase64(signedTx); }
-    catch (err) { return res.status(400).json({ ok: false, error: err instanceof Error ? err.message : String(err) }); }
-
-    const recomputed = messageHashHex(tx);
-    if (recomputed !== digest) {
-      return res.status(409).json({ ok: false, error: 'signed_tx_message_does_not_match_digest' });
-    }
-    if (tx.recentBlockhash !== entry.blockhashInfo.blockhash) {
-      return res.status(409).json({ ok: false, error: 'blockhash_mismatch' });
-    }
-
-    let currentBlockHeight: number;
-    try { currentBlockHeight = await chain.getBlockHeight(); }
-    catch (err) { return res.status(200).json({ ok: false, error: toClientError(err, 'submit-blockheight') }); }
-    const freshness = checkBlockhashFreshness(tx, entry.blockhashInfo, currentBlockHeight, marginBlocks);
-    if (!freshness.ok) return res.status(410).json({ ok: false, error: freshness.code, detail: freshness.detail });
-
-    const consumed = digestCache.consume(digest);
-    if (!consumed) return res.status(410).json({ ok: false, error: 'digest_not_found_expired_or_already_used' });
-
-    let validated: ValidatedSellTx;
+    const pre = await precheckSignedSale(signedTx, digest, entry);
+    if (!pre.ok) return sendFail(res, pre);
+    if (!digestCache.consume(digest)) return res.status(410).json({ ok: false, error: 'digest_not_found_expired_or_already_used' });
+    const post = await postcheckSignedSale(pre, entry);
+    if (!post.ok) return sendFail(res, post);
     try {
-      validated = validateSellStructure(tx, entry.intent, 'present');
-    } catch (err) {
-      return res.status(409).json({ ok: false, error: `revalidation_failed: ${err instanceof Error ? err.message : String(err)}` });
-    }
-    if (!validated.cosignPrefilled) {
-      return res.status(400).json({ ok: false, error: 'cosign_missing_at_submit' });
-    }
-    // The actual security boundary: cryptographically verifies BOTH
-    // signature slots (seller's just-added signature AND ME's cosign)
-    // against the exact message bytes.
-    if (!tx.verifySignatures(true)) {
-      return res.status(400).json({ ok: false, error: 'invalid_signature' });
-    }
-
-    try {
-      const signature = await chain.sendRawTransaction(tx);
+      const signature = pre.vtx
+        ? await chain.sendRawBytes!(post.raw)
+        : await chain.sendRawTransaction(pre.tx!);
       return res.json({ ok: true, signature });
     } catch (err) {
       return res.status(200).json({ ok: false, error: toClientError(err, 'submit-send') });
+    }
+  });
+
+  // ── Atomic top-up + accept: [top-up, ME sale (untouched), tip] as one
+  // Jito bundle — see me-sell-bundle.ts header for why never sequential. ──
+  router.post('/tools/me-sell/submit-bundle', submitLimit, authMw, async (req: Request, res: Response) => {
+    if (!liveEnabled) return res.status(403).json({ ok: false, error: 'live_mode_disabled_server_side' });
+    const { signedTopupTx, signedTx, signedTipTx, digest } = req.body as {
+      signedTopupTx?: string; signedTx?: string; signedTipTx?: string; digest?: string;
+    };
+    if (![signedTopupTx, signedTx, signedTipTx].every((t) => typeof t === 'string' && t.length > 0)) {
+      return res.status(400).json({ ok: false, error: 'missing_signed_txs' });
+    }
+    if (!digest || typeof digest !== 'string' || !/^[0-9a-f]{64}$/.test(digest)) {
+      return res.status(400).json({ ok: false, error: 'missing_or_malformed_digest' });
+    }
+    const entry = digestCache.get(digest);
+    if (!entry) return res.status(410).json({ ok: false, error: 'digest_not_found_expired_or_already_used' });
+    if (entry.expiresAt < now()) { digestCache.consume(digest); return res.status(410).json({ ok: false, error: 'digest_expired' }); }
+    const aux = entry.bundle;
+    if (!aux) return res.status(409).json({ ok: false, error: 'not_a_bundle_build' });
+    if (!chain.getBalanceStrict) return res.status(501).json({ ok: false, error: 'bundle_not_supported_by_chain_client' });
+
+    const pre = await precheckSignedSale(signedTx!, digest, entry);
+    if (!pre.ok) return sendFail(res, pre);
+    const topup = checkSignedAux(signedTopupTx!, aux.topupHash);
+    if (!topup.ok) return res.status(409).json({ ok: false, error: `topup_${topup.reason}` });
+    const tip = checkSignedAux(signedTipTx!, aux.tipHash);
+    if (!tip.ok) return res.status(409).json({ ok: false, error: `tip_${tip.reason}` });
+
+    // Escrow must be exactly what the top-up was sized (and simulated)
+    // against — any movement means another fill/withdraw/top-up happened:
+    // rebuild rather than send SOL sized for a different state.
+    let escrowNow: number;
+    try { escrowNow = await chain.getBalanceStrict(new PublicKey(aux.escrowPda)); }
+    catch (err) { return res.status(200).json({ ok: false, error: toClientError(err, 'bundle-escrow-recheck') }); }
+    if (escrowNow !== aux.escrowLamportsAtBuild) {
+      digestCache.consume(digest);
+      return res.status(409).json({ ok: false, error: 'escrow_changed_since_build', detail: `${aux.escrowLamportsAtBuild} -> ${escrowNow} lamports — Load Offer again` });
+    }
+
+    if (!digestCache.consume(digest)) return res.status(410).json({ ok: false, error: 'digest_not_found_expired_or_already_used' });
+    const post = await postcheckSignedSale(pre, entry);
+    if (!post.ok) return sendFail(res, post);
+
+    const saleSig = pre.vtx ? bs58Encode(pre.vtx.signatures[0]) : bs58Encode(pre.tx!.signature!);
+    try {
+      const sent = await sendBundle([
+        topup.tx.serialize().toString('base64'),
+        post.raw.toString('base64'),
+        tip.tx.serialize().toString('base64'),
+      ]);
+      return res.json({
+        ok: true, bundleId: sent.bundleId, signature: saleSig,
+        topupSignature: bs58Encode(topup.tx.signature!), tipSignature: bs58Encode(tip.tx.signature!),
+        acceptedBy: sent.accepted, jitoErrors: sent.errors,
+      });
+    } catch (err) {
+      return res.status(200).json({ ok: false, error: toClientError(err, 'bundle-send') });
     }
   });
 

@@ -45,7 +45,7 @@ check('matches Math.round(x*1e9) at realistic magnitudes (sanity, not the author
 console.log('mapDasInterfaceToStandard');
 check('ProgrammableNFT -> pnft', () => { assert.strictEqual(mapDasInterfaceToStandard('ProgrammableNFT'), 'pnft'); });
 check('MplCoreAsset -> mplCore', () => { assert.strictEqual(mapDasInterfaceToStandard('MplCoreAsset'), 'mplCore'); });
-check('V1_NFT (legacy) -> null (not yet evidenced, fails closed)', () => { assert.strictEqual(mapDasInterfaceToStandard('V1_NFT'), null); });
+check('V1_NFT (legacy) -> legacy (evidenced 2026-10-01, auditor needs creators)', () => { assert.strictEqual(mapDasInterfaceToStandard('V1_NFT'), 'legacy'); });
 check('undefined -> null', () => { assert.strictEqual(mapDasInterfaceToStandard(undefined), null); });
 check('unknown future interface -> null (fail closed, not routed by name)', () => { assert.strictEqual(mapDasInterfaceToStandard('SomeFutureThing'), null); });
 

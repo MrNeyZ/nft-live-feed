@@ -217,7 +217,7 @@ export interface FrozenOfferIntent {
   buyer: string;
   auctionHouse: string;
   priceLamports: string;
-  standard: 'pnft' | 'mplCore' | null;
+  standard: 'pnft' | 'mplCore' | 'legacy' | null;
   standardSupported: boolean;
 }
 
