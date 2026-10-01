@@ -851,7 +851,15 @@ const STALE_TARGET_MS = 120_000; // 2 minutes — busy targets (me_v2, mmm, tcom
 // targets keep `lastEventTs`/`lastSlotTs` fresh.
 const QUIET_TARGETS: ReadonlySet<string> = new Set(['candy_guard', 'tamm', 'me_cnft', 'orbis']);
 const STALE_TARGET_QUIET_MS = 10 * 60_000; // 10 minutes
+// mpl_core never idles (min 59 / median 172 notifications per minute over a
+// day, measured 2026-10-01), yet Helius silently stops delivering on it
+// every ~3-15 min (~265 stale restarts/day). Each silent window is
+// recovered by the cursor poll, which can't see logs, so every missed sig
+// costs a blind getTransaction. Detecting the dead subscription at 45 s
+// instead of 120 s shrinks that gap — and its catch-up credits — ~60 %.
+const STALE_MPL_CORE_MS = 45_000;
 function staleThresholdMs(name: string): number {
+  if (name === 'mpl_core') return STALE_MPL_CORE_MS;
   return QUIET_TARGETS.has(name) ? STALE_TARGET_QUIET_MS : STALE_TARGET_MS;
 }
 
