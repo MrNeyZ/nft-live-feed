@@ -49,6 +49,10 @@ import { fetchMetaFromJsonUri } from '../enrichment/metaplex-onchain';
 export type ListingSource = 'ME' | 'MMM' | 'TENSOR';
 export type ListingType   = 'listing' | 'pool';
 
+/** MMM pool pricing curve: each NFT bought out of the pool steps the price
+ *  (exp: ×(1+delta/1e4); linear: +delta lamports), LP fee on top. */
+export interface PoolCurve { type: 'exp' | 'linear'; delta: number; lpFeeBp: number }
+
 export interface Listing {
   /** Stable unique id.
    *   ME      → `ME:${mint}:${seller}`
@@ -83,6 +87,8 @@ export interface Listing {
   /** NFT thumbnail URL from ME's `extra.img` / `token.image`. Null when
    *  unavailable. */
   imageUrl:     string | null;
+  /** MMM rows only — the pool's price curve (sweep pricing). */
+  poolCurve?:   PoolCurve | null;
 }
 
 // ─── Core store ──────────────────────────────────────────────────────────────
@@ -318,6 +324,7 @@ function toWire(l: Listing) {
     listedAt:     l.listedAt,
     nftName:      nonBlankName(l.nftName),
     imageUrl:     l.imageUrl,
+    poolCurve:    l.poolCurve ?? null,
   };
 }
 
@@ -882,6 +889,11 @@ async function fetchMmmPools(slug: string): Promise<Listing[]> {
           listedAtQuality: null,
           nftName:      null,   // filled from ME's pool-hosted /listings rows in fetchSnapshot
           imageUrl:     null,
+          poolCurve: {
+            type:    p.curveType === 'linear' ? 'linear' : 'exp',
+            delta:   p.curveDelta ?? 0,
+            lpFeeBp: p.poolType === 'two_sided' ? (p.lpFeeBp ?? 0) : 0,
+          },
         });
       }
     }

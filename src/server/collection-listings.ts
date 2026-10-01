@@ -14,7 +14,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { ensureFresh, getByCollection, previewCheapest, Listing } from './listings-store';
+import { ensureFresh, getByCollection, previewCheapest, Listing, PoolCurve } from './listings-store';
 import { rateLimit, isValidSlug } from './rate-limit';
 import { getTopOffers } from './nft-offers';
 import { getBidsForSlug } from './collection-bids';
@@ -71,6 +71,7 @@ export interface ListingOut {
   /** NFT thumbnail URL. Null when unavailable; frontend falls back to the
    *  abbr/color placeholder. */
   imageUrl:     string | null;
+  poolCurve:    PoolCurve | null;
 }
 
 // ME direct + MMM pool → `marketplace: 'me'` (both are ME-economy).
@@ -89,6 +90,7 @@ function toListingOut(l: Listing): ListingOut {
     listedAt:     l.listedAt,
     nftName:      l.nftName,
     imageUrl:     l.imageUrl,
+    poolCurve:    l.poolCurve ?? null,
   };
 }
 

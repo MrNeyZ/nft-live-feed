@@ -1112,6 +1112,16 @@ a { color: inherit; text-decoration: none; }
 .sort-menu-item:hover { background: rgb(var(--vl-purple-tint) / 0.06); }
 .sort-menu-item.is-active { background: rgb(var(--vl-purple-tint) / 0.12); font-weight: 700; }
 
+/* Pool card: per-buy curve step + whole-pool sweep toggle. Palette only. */
+.pool-step-label { font-size: 10px; font-weight: 700; color: rgb(var(--vl-gold)); margin-left: 4px; }
+.pool-sweep-btn {
+  height: 18px; padding: 0 8px; border-radius: 5px; font-size: 10px; font-weight: 800; letter-spacing: 0.2px;
+  cursor: pointer; background: rgb(var(--vl-green-strong) / 0.10); color: rgb(var(--vl-green-strong));
+  border: 1px solid rgb(var(--vl-green-strong) / 0.32);
+}
+.pool-sweep-btn:hover { background: rgb(var(--vl-green-strong) / 0.18); }
+.pool-sweep-btn.is-active { background: rgb(var(--vl-green-strong)); color: rgb(var(--vl-ink)); }
+
 /* Sweep bar (listings pane, above the list). */
 .sweep-bar {
   display: flex; align-items: center; gap: 8px; flex-shrink: 0;

@@ -105,6 +105,8 @@ interface ListingRow {
   /** MMM pool address for pool-hosted NFTs (grouped into one collapsed
    *  row per pool), null for ordinary listings. */
   poolKey?:     string | null;
+  /** MMM pool price curve (pool rows only): each buy steps the next price. */
+  poolCurve?:   PoolCurve | null;
   /** Epoch ms when the listing was created on-chain. Null when unavailable
    *  (MMM pool rows, Tensor listings not yet wired, or ME listings older
    *  than the 100-row activities window). */
@@ -240,6 +242,26 @@ function trimFloorSide(rows: ListingRow[], newSince: number): ListingRow[] {
   return rows.filter(l => keep.has(l.id) || (l.listedAt != null && l.listedAt > newSince));
 }
 
+// ── MMM pool curve ───────────────────────────────────────────────────────
+// A pool row's priceSol is the price of the NEXT NFT out (curve step + LP
+// fee, ME's quote). Every buy moves the pool one step: exp ×(1+delta/1e4),
+// linear +delta lamports (LP fee on top). The buyer also pays ME's taker
+// fee (MMM_TAKER_BP) on the stepped price, which ME's quote leaves out.
+type PoolCurve = { type: 'exp' | 'linear'; delta: number; lpFeeBp: number };
+const MMM_TAKER_BP = 200;
+/** Listing-style price of the i-th NFT (0-based) bought out of the pool. */
+function poolStepPrice(first: number, c: PoolCurve | null | undefined, i: number): number {
+  if (!c || i <= 0) return first;
+  return c.type === 'linear'
+    ? first + (i * c.delta / 1e9) * (1 + c.lpFeeBp / 1e4)
+    : first * Math.pow(1 + c.delta / 1e4, i);
+}
+/** What the buyer actually pays for that step (adds the taker fee). */
+function poolStepCost(first: number, c: PoolCurve | null | undefined, i: number): number {
+  const p = poolStepPrice(first, c, i);
+  return p * (1 + MMM_TAKER_BP / (1e4 + (c?.lpFeeBp ?? 0)));
+}
+
 function resolveNftDisplay(input: {
   nftName:  string | null | undefined;
   mint:     string | null | undefined;
@@ -313,7 +335,7 @@ function listingBuyProps(
   const done = status.kind === 'done', errored = status.kind === 'error';
   // Buy execution is wired for ME only; Tensor rows keep a disabled BUY.
   // buyEnabled = ME API key present; the Tensor path doesn't need it.
-  const disabled = !(isMe || isTensor) || isPool || busy || pending || (isMe && buyEnabled !== true) || !walletConnected;
+  const disabled = !(isMe || isTensor) || busy || pending || (isMe && buyEnabled !== true) || !walletConnected;
   const label =
     done    ? '✓'     :
     pending ? 'sent'  :
@@ -321,7 +343,8 @@ function listingBuyProps(
     busy    ? (status.step === 'signing' ? 'sign' : '…') : 'BUY';
   const title = errored ? `error: ${status.message}`
     : pending            ? `Submitted, confirmation pending — https://solscan.io/tx/${status.signature}`
-    : isPool             ? 'Buying from AMM pools is not implemented yet'
+    : isPool && !walletConnected ? 'Connect Phantom to buy'
+    : isPool             ? `Buy from AMM pool: ${formatSol(listing.priceSol)} SOL + ${MMM_TAKER_BP / 100}% taker fee (price steps up after each buy)`
     : isMe && buyEnabled === false ? 'Buy unavailable: ME_API_KEY not set on server'
     : !walletConnected   ? 'Connect Phantom to buy'
     :                      `Buy ${formatSol(listing.priceSol)} SOL`;
@@ -1323,7 +1346,26 @@ export default function CollectionPage() {
   // slippage 1% — users can only buy the price we just showed them; any
   // real-world move rejects here. Tensor: our own buy_core builder (no Tensor
   // API); ME: buy_now.
-  const buildBuyTx = useCallback(async (listing: ListingRow, buyer: string): Promise<string> => {
+  const buildBuyTx = useCallback(async (listing: ListingRow, buyer: string, poolMaxPriceSol?: number): Promise<string> => {
+    if (listing.poolKey) {
+      // MMM pool: ME returns the tx already cosigned; the cap is the price of
+      // the highest curve step this purchase can land on (sweeps send all
+      // steps at once, so every tx of one pool carries the top step's cap).
+      const params = new URLSearchParams({
+        pool:           listing.poolKey,
+        mint:           listing.mint,
+        buyer,
+        collectionSlug: slug,
+        maxPriceSol:    String(poolMaxPriceSol ?? listing.priceSol),
+        maxSlippagePct: '1',
+      });
+      const res = await fetch(`${API_BASE}/api/buy/mmm?${params.toString()}`, { headers: { ...authHeaders() } });
+      if (!res.ok) {
+        const bd = await res.json().catch(() => ({})) as { error?: string; message?: string };
+        throw new Error(bd.message ?? bd.error ?? `HTTP ${res.status}`);
+      }
+      return (await res.json() as { txBase64: string }).txBase64;
+    }
     const isTensor = listing.marketplace === 'tensor';
     const params = new URLSearchParams({
       marketplace:      isTensor ? 'tensor' : 'magic_eden',
@@ -1399,21 +1441,43 @@ export default function CollectionPage() {
   const [sweepSel, setSweepSel] = useState<Set<string>>(() => new Set());
   const [sweepStage, setSweepStage] = useState<'idle' | 'building' | 'signing' | 'sending'>('idle');
   const isSweepable = useCallback((l: ListingRow) => {
-    if (l.poolKey || (l.marketplace !== 'me' && l.marketplace !== 'tensor')) return false;
+    if (l.marketplace !== 'me' && l.marketplace !== 'tensor') return false;
     const k = (buyStatuses[l.mint] ?? { kind: 'idle' }).kind;
     return k === 'idle' || k === 'error';
   }, [buyStatuses]);
   // Cheapest first — what the floor slider takes from.
+  // Pool NFTs enter at their curve step price (k-th out of a pool costs
+  // step k), so the slider only takes more from a pool while it stays cheaper.
   const sweepFloorOrder = useMemo(
-    () => listingItems.flatMap(it => it.kind === 'row' && isSweepable(it.l) ? [it.l] : [])
-      .sort((x, y) => x.priceSol - y.priceSol),
+    () => listingItems.flatMap(it => {
+      if (it.kind === 'row') return isSweepable(it.l) ? [{ l: it.l, p: it.l.priceSol }] : [];
+      return it.rows.filter(isSweepable).map((l, i) => ({ l, p: poolStepPrice(l.priceSol, l.poolCurve, i) }));
+    }).sort((x, y) => x.p - y.p).map(x => x.l),
     [listingItems, isSweepable],
   );
   const sweepRows = useMemo(
     () => listings.filter(l => sweepSel.has(l.mint) && isSweepable(l)),
     [listings, sweepSel, isSweepable],
   );
-  const sweepTotalSol = sweepRows.reduce((acc, l) => acc + l.priceSol, 0);
+  // Pool rows priced along the curve: m NFTs from one pool cost steps 0..m-1
+  // (+ taker fee). sweepPoolTop = the top step's listing price per pool —
+  // the cap every tx of that pool is built with.
+  const { sweepTotalSol, sweepPoolTop } = useMemo(() => {
+    let total = 0;
+    const byPool = new Map<string, ListingRow[]>();
+    for (const l of sweepRows) {
+      if (!l.poolKey) { total += l.priceSol; continue; }
+      const arr = byPool.get(l.poolKey);
+      if (arr) arr.push(l); else byPool.set(l.poolKey, [l]);
+    }
+    const top = new Map<string, number>();
+    for (const [pk, rows] of byPool) {
+      const first = rows[0].priceSol, c = rows[0].poolCurve;
+      for (let i = 0; i < rows.length; i++) total += poolStepCost(first, c, i);
+      top.set(pk, poolStepPrice(first, c, rows.length - 1));
+    }
+    return { sweepTotalSol: total, sweepPoolTop: top };
+  }, [sweepRows]);
   // Slider mirrors the selection size (card click / drag / slider alike).
   const sweepN = Math.min(sweepRows.length, SWEEP_MAX);
   // Press-and-drag (mouse) / long-press-and-slide (touch) multi-select.
@@ -1449,7 +1513,7 @@ export default function CollectionPage() {
       while (cursor < rows.length) {
         const l = rows[cursor++];
         try {
-          built.push({ l, tx: await buildBuyTx(l, buyer) });
+          built.push({ l, tx: await buildBuyTx(l, buyer, l.poolKey ? sweepPoolTop.get(l.poolKey) : undefined) });
         } catch (err) {
           const message = (err as Error).message ?? String(err);
           setBuyStatuses(prev => ({ ...prev, [l.mint]: { kind: 'error', message } }));
@@ -1604,8 +1668,8 @@ export default function CollectionPage() {
         buy={listingBuyProps(l, buyStatuses[l.mint] ?? { kind: 'idle' }, !!walletPubkey, buyEnabled, onBuyListing)}
         onPreview={setPreview}
         topOffer={nested ? null : topOfferFor(l.mint, l.priceSol)}
-        selected={!nested && sweepSel.has(l.mint)}
-        onSelect={!nested && isSweepable(l) ? toggleSweep : undefined}
+        selected={sweepSel.has(l.mint)}
+        onSelect={isSweepable(l) ? toggleSweep : undefined}
         poolMember={nested}
         isNew={l.listedAt != null && l.listedAt > pageOpenedAtRef.current}
       />
@@ -1881,6 +1945,15 @@ export default function CollectionPage() {
                       abbr={headerAbbr}
                       expanded={open}
                       fallbackImageUrl={slug ? iconBySlug[slug] ?? null : null}
+                      curve={it.rows[0].poolCurve ?? null}
+                      selectedCount={it.rows.filter(r => sweepSel.has(r.mint)).length}
+                      onSweepAll={sweepStage === 'idle' ? () => setSweepSel(prev => {
+                        const next = new Set(prev);
+                        const members = it.rows.filter(isSweepable);
+                        const all = members.length > 0 && members.every(r => next.has(r.mint));
+                        for (const r of members) if (all) next.delete(r.mint); else next.add(r.mint);
+                        return next;
+                      }) : undefined}
                       onToggle={() => setOpenPools(prev => {
                         const next = new Set(prev);
                         if (next.has(it.poolKey)) next.delete(it.poolKey); else next.add(it.poolKey);

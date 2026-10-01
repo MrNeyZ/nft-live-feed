@@ -1200,6 +1200,7 @@ export const ListingCard = memo(function ListingCard({
  *  costs the same next-buy price, so the row shows that single price. */
 export const PoolGroupCard = memo(function PoolGroupCard({
   poolKey, count, priceSol, imageUrls, color, abbr, expanded, onToggle, fallbackImageUrl = null,
+  curve = null, selectedCount = 0, onSweepAll,
 }: {
   poolKey:   string;
   count:     number;
@@ -1211,8 +1212,18 @@ export const PoolGroupCard = memo(function PoolGroupCard({
   expanded:  boolean;
   onToggle:  () => void;
   fallbackImageUrl?: string | null;
+  /** Pool price curve — shown as the per-buy step ("+2%/buy"). */
+  curve?: { type: 'exp' | 'linear'; delta: number; lpFeeBp: number } | null;
+  /** How many of this pool's NFTs are in the sweep selection. */
+  selectedCount?: number;
+  /** Select / deselect every NFT in the pool for the sweep. */
+  onSweepAll?: () => void;
 }) {
   const priceStr = formatFeedPrice(priceSol);
+  const stepLabel = !curve || curve.delta <= 0 ? null
+    : curve.type === 'linear' ? `+${formatFeedPrice(curve.delta / 1e9)}/buy`
+    : `+${(curve.delta / 100).toFixed(curve.delta % 100 ? 1 : 0)}%/buy`;
+  const allSelected = selectedCount > 0 && selectedCount >= count;
   const priceFontSize = priceStr.length <= 4 ? 19.5 : priceStr.length === 5 ? 17 : 15;
   const pill = KIND_STYLES.buy;
   return (
@@ -1247,7 +1258,17 @@ export const PoolGroupCard = memo(function PoolGroupCard({
                 onClick={(e) => e.stopPropagation()} style={WALLET_LINK_STYLE}>
                 {poolKey.slice(0, 4)}…{poolKey.slice(-4)}
               </a>
+              {stepLabel && <span className="pool-step-label" title="Pool price rises after every NFT bought out of it">{stepLabel}</span>}
             </div>
+            {onSweepAll && (
+              <div style={{ display: 'flex' }}>
+                <button type="button" className={`pool-sweep-btn${selectedCount > 0 ? ' is-active' : ''}`}
+                  onClick={(e) => { e.stopPropagation(); onSweepAll(); }}
+                  title={allSelected ? 'Remove the whole pool from the sweep' : 'Add every NFT in this pool to the sweep (priced along the curve)'}>
+                  {allSelected ? `✓ all ${count} in sweep` : selectedCount > 0 ? `${selectedCount}/${count} · sweep all` : `sweep all ${count}`}
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
