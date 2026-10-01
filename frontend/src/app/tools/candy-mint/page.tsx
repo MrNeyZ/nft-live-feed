@@ -47,6 +47,7 @@ import {
   type FrozenMintIntent, type ResolvedGuardPayment, type PaymentAuthorization,
 } from './intent';
 import { auditCandyMintTx } from './audit';
+import { FireSalePanel, PRINTER_CANDY_MACHINE } from './fire-sale';
 
 interface MintLimitStatus {
   id: number;
@@ -1369,6 +1370,13 @@ export default function CandyMintPage() {
             <div style={{ fontSize: 12, color: rgb(VL.redStrong), marginTop: 16 }}>{flow.message}</div>
           )}
         </div>
+      )}
+
+      {loaded && loaded.inspection.candyMachine === PRINTER_CANDY_MACHINE && (
+        <FireSalePanel
+          wallet={wallet}
+          groupLamports={Object.fromEntries(loaded.inspection.groups.map((g) => [g.label ?? '', g.solPaymentLamports]))}
+        />
       )}
 
       {/* ── launchpad hero — stays mounted through the whole mint flow ──── */}

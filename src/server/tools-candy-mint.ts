@@ -274,6 +274,44 @@ export function createCandyMintRouter(): Router {
     }
   });
 
+  // printerotc.fun fire sale — thin proxy to the project's own offer flow
+  // (login -> spin -> prepare -> sign -> submit). The project's server issues
+  // the offer and builds the tx for exactly that offer; we only relay (their
+  // endpoints require same-origin headers, so the browser can't call them).
+  // The project session token travels in `x-printer-token`.
+  const FIRE_SALE_ACTIONS = new Set(['challenge', 'login', 'state', 'spin', 'prepare', 'sign', 'submit', 'check', 'receipt']);
+  const fireSaleLimit = rateLimit({ limit: 60, windowMs: 60_000, label: 'tools/candy-mint/fire-sale' });
+  router.all('/tools/candy-mint/fire-sale/:action', fireSaleLimit, requireAuth, async (req: Request, res: Response) => {
+    const action = String(req.params.action);
+    const isConfig = action === 'config' && req.method === 'GET';
+    if (!isConfig && (req.method !== 'POST' || !FIRE_SALE_ACTIONS.has(action))) {
+      return res.status(404).json({ error: 'unknown_fire_sale_action' });
+    }
+    try {
+      const token = req.header('x-printer-token');
+      const r = await fetch(`https://printerotc.fun/api/fire-sale/${action}`, {
+        method: isConfig ? 'GET' : 'POST',
+        headers: {
+          'content-type': 'application/json',
+          origin: 'https://printerotc.fun',
+          referer: 'https://printerotc.fun/',
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        body: isConfig ? undefined : JSON.stringify(req.body ?? {}),
+        signal: AbortSignal.timeout(45_000),
+      });
+      const text = await r.text();
+      // Keep the upstream status (409 expired offer etc.) — the panel shows the
+      // project's own error text.
+      res.status(r.status).type('application/json');
+      try { JSON.parse(text); return res.send(text); } catch { return res.json({ error: text.slice(0, 300) }); }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[tools/candy-mint] fire-sale proxy error', action, msg);
+      return res.status(502).json({ error: `fire_sale_unreachable: ${msg}` });
+    }
+  });
+
   router.get('/tools/candy-mint/block-height', blockHeightLimit, requireAuth, async (_req: Request, res: Response) => {
     try {
       const blockHeight = await getCurrentBlockHeight();
