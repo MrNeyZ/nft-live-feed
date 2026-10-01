@@ -41,6 +41,7 @@ import { getEventsByCollection, getCanonicalSaleMetaBySignatures } from '../db/q
 import { rateLimit, isValidSlug } from './rate-limit';
 import { meAuthHeaders } from '../me-api-cooldown';
 import { getPool } from '../db/client';
+import { rarityForMints } from './rarity-lookup';
 
 const ME_API           = 'https://api-mainnet.magiceden.dev/v2';
 const PAGE_SIZE        = 500;
@@ -326,6 +327,18 @@ export function createCollectionTradeHistoryRouter(): Router {
       } catch (e) {
         console.warn(`[trade-history] name overlay failed slug=${slug}:`, (e as Error).message);
       }
+    }
+
+    // Rarity from mint_rarity_cache (same source as the feed's REST rows) so
+    // the TRADES rarity filters have ranks. Best-effort, one batched query.
+    try {
+      const rar = await rarityForMints(events.map(e => e.mint_address));
+      events = events.map(e => {
+        const v = e.mint_address ? rar.get(e.mint_address) : null;
+        return v ? { ...e, rarity_rank: v.rarityRank, total_supply: v.totalSupply } : e;
+      });
+    } catch (e) {
+      console.warn(`[trade-history] rarity overlay failed slug=${slug}:`, (e as Error).message);
     }
 
     cache.set(cacheKey, { events, fetchedAt: Date.now(), source });

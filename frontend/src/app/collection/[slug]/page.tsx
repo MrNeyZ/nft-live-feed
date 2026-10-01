@@ -348,7 +348,7 @@ function StatItem({ value, label, highlight, title }: { value: React.ReactNode; 
   );
 }
 
-// ── FilterBtn / DropBtn (verbatim ports; non-functional placeholders) ──────
+// ── FilterBtn (verbatim port; non-functional placeholder) + SortMenu ──────
 function FilterBtn({ label }: { label: string }) {
   const [active, setActive] = useState(false);
   return <Pill active={active} onClick={() => setActive(a => !a)} label={label} size="sm" />;
@@ -363,7 +363,21 @@ const LIST_SORT_OPTIONS: { v: ListSort; label: string; color?: string }[] = [
   { v: 'MYTHIC',    label: 'mythic',    color: TIER_STYLE.MYTHIC.bg },
 ];
 
-function SortMenu({ value, onChange }: { value: ListSort; onChange: (v: ListSort) => void }) {
+type TradeSort = 'date' | 'price' | 'mine' | 'EPIC' | 'LEGENDARY' | 'MYTHIC';
+const TRADE_SORT_OPTIONS: { v: TradeSort; label: string; color?: string }[] = [
+  { v: 'date',      label: 'trade date' },
+  { v: 'price',     label: 'price' },
+  { v: 'mine',      label: 'mine' },
+  { v: 'EPIC',      label: 'epic',      color: TIER_STYLE.EPIC.bg },
+  { v: 'LEGENDARY', label: 'legendary', color: TIER_STYLE.LEGENDARY.bg },
+  { v: 'MYTHIC',    label: 'mythic',    color: TIER_STYLE.MYTHIC.bg },
+];
+const isTier = (v: string): v is 'EPIC' | 'LEGENDARY' | 'MYTHIC' => v === 'EPIC' || v === 'LEGENDARY' || v === 'MYTHIC';
+
+/** Sort/view dropdown; the first option is the default (inactive pill). */
+function SortMenu<T extends string>({ value, onChange, options }: {
+  value: T; onChange: (v: T) => void; options: { v: T; label: string; color?: string }[];
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -372,18 +386,18 @@ function SortMenu({ value, onChange }: { value: ListSort; onChange: (v: ListSort
     window.addEventListener('pointerdown', close);
     return () => window.removeEventListener('pointerdown', close);
   }, [open]);
-  const cur = LIST_SORT_OPTIONS.find(o => o.v === value) ?? LIST_SORT_OPTIONS[0];
+  const cur = options.find(o => o.v === value) ?? options[0];
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <Pill
-        active={value !== 'price'}
+        active={value !== options[0].v}
         onClick={() => setOpen(o => !o)}
         label={<><span style={cur.color ? { color: cur.color } : undefined}>{cur.label}</span> <span style={{ color: 'var(--vl-border-subtle)' }}>▼</span></>}
         size="sm"
       />
       {open && (
         <div className="sort-menu">
-          {LIST_SORT_OPTIONS.map(o => (
+          {options.map(o => (
             <button key={o.v} className={`sort-menu-item${o.v === value ? ' is-active' : ''}`}
               style={o.color ? { color: o.color } : undefined}
               onClick={() => { onChange(o.v); setOpen(false); }}>
@@ -393,15 +407,6 @@ function SortMenu({ value, onChange }: { value: ListSort; onChange: (v: ListSort
         </div>
       )}
     </div>
-  );
-}
-
-function DropBtn({ label }: { label: string }) {
-  return (
-    <Pill
-      label={<>{label} <span style={{ color: 'var(--vl-border-subtle)' }}>▼</span></>}
-      size="sm"
-    />
   );
 }
 
@@ -741,12 +746,6 @@ export default function CollectionPage() {
     return null;
   }, [events]);
 
-  // Trades rendered with the /feed FeedCard. Thumbnails fall back to the
-  // listings snapshot image when the trade row has none.
-  const tradeCards = useMemo(() => visibleEvents.map(e => {
-    const img = !e.imageUrl && e.mintAddress ? imageByMint.get(e.mintAddress) : undefined;
-    return img ? { ...e, imageUrl: img } : e;
-  }), [visibleEvents, imageByMint]);
 
   // ── Listing / undercut detector v2 ───────────────────────────────────────
   // Rolling window of actionable events (undercut / near-floor) emitted when
@@ -928,6 +927,22 @@ export default function CollectionPage() {
   const [walletPubkey, setWalletPubkey] = useState<string | null>(null);
   // Listings sort/view. Rarity modes show only that exact tier (cheapest first).
   const [listSort, setListSort] = useState<ListSort>('price');
+  // Trades view: same menu shape. Filters run on the full buffer, then cap.
+  const [tradeSort, setTradeSort] = useState<TradeSort>('date');
+  const tradeView = useMemo(() => {
+    if (tradeSort === 'date') return visibleEvents;
+    let out = events;
+    if (tradeSort === 'mine') out = walletPubkey ? out.filter(e => e.buyer === walletPubkey || e.seller === walletPubkey) : [];
+    else if (isTier(tradeSort)) out = out.filter(e => rarityTier(e.rarityRank, e.totalSupply ?? collectionSupply) === tradeSort);
+    else out = [...out].sort((a, b) => b.price - a.price);
+    return out.slice(0, VISIBLE_TRADES_MAX);
+  }, [tradeSort, events, visibleEvents, walletPubkey, collectionSupply]);
+  // Trades rendered with the /feed FeedCard. Thumbnails fall back to the
+  // listings snapshot image when the trade row has none.
+  const tradeCards = useMemo(() => tradeView.map(e => {
+    const img = !e.imageUrl && e.mintAddress ? imageByMint.get(e.mintAddress) : undefined;
+    return img ? { ...e, imageUrl: img } : e;
+  }), [tradeView, imageByMint]);
   // Pool-hosted NFTs collapse into one row per pool, placed where the pool's
   // (shared) price sorts; expanding shows its NFTs right under it.
   const listingItems = useMemo(() => {
@@ -941,7 +956,7 @@ export default function CollectionPage() {
     }
     let pool = Array.from(byMint.values());
     if (listSort === 'mine') pool = walletPubkey ? pool.filter(l => l.seller === walletPubkey) : [];
-    else if (listSort === 'EPIC' || listSort === 'LEGENDARY' || listSort === 'MYTHIC') {
+    else if (isTier(listSort)) {
       pool = pool.filter(l => rarityTier(l.rank, collectionSupply) === listSort);
     }
     const sorted = listSort === 'date'
@@ -1612,7 +1627,7 @@ export default function CollectionPage() {
                   ? { label: 'SELL PRESSURE',   border: '1px solid rgb(var(--vl-red) / .5)', background: 'rgb(var(--vl-red) / .13)', color: 'var(--vl-red-primary)' }
                   : marketSignal === 'buy'
                   ? { label: 'BUY OPPORTUNITY', border: '1px solid rgb(var(--vl-green) / .5)', background: 'rgb(var(--vl-green) / .13)', color: 'var(--vl-green-primary)' }
-                  : { label: 'MIXED',           border: '1px solid rgb(var(--vl-purple) / .5)', background: 'rgb(var(--vl-purple) / .13)', color: rgb(VL.purpleTint) };
+                  : { label: 'MIXED',           border: '1px solid rgb(var(--vl-purple-tint) / .5)', background: 'rgb(var(--vl-purple-tint) / .13)', color: rgb(VL.purpleTint) };
                 return (
                   <span
                     
@@ -1712,8 +1727,8 @@ export default function CollectionPage() {
           <button key={t} onClick={() => setTab(t)} style={{
             padding:'4px 32px', fontSize:10, fontWeight:600, letterSpacing:'0.6px',
             textTransform:'uppercase', background:'transparent', border:'none', cursor:'pointer',
-            color: tab === t ? 'var(--vl-purple-primary)' : 'var(--vl-border-subtle)',
-            borderBottom: tab === t ? '2px solid var(--vl-purple-primary)' : '2px solid transparent',
+            color: tab === t ? 'var(--vl-purple-tint)' : 'var(--vl-border-subtle)',
+            borderBottom: tab === t ? '2px solid var(--vl-purple-tint)' : '2px solid transparent',
             marginBottom:'-1px',
           }}>
             {t === 'live' ? <><LiveDot /> &nbsp;Live View</> : 'Summary'}
@@ -1738,7 +1753,7 @@ export default function CollectionPage() {
               <span style={{ fontSize:11, fontWeight:700, color:'var(--vl-text-primary)', letterSpacing:'0.5px' }}>
                 LISTINGS <span
                   
-                  style={{ color:'var(--vl-purple-primary)', fontWeight:600 }}
+                  style={{ color:'var(--vl-purple-tint)', fontWeight:600 }}
                 >({listings.length.toLocaleString()} / {listedCount != null ? listedCount.toLocaleString() : '—'})</span>
               </span>
               <LiveDot />
@@ -1756,7 +1771,7 @@ export default function CollectionPage() {
                 size="sm"
               />
               <span style={{ fontSize:10, color:'var(--vl-text-muted)' }}>Sort:</span>
-              <SortMenu value={listSort} onChange={(v) => { setListSort(v); setListingsShow(INITIAL_REVEAL); }} />
+              <SortMenu value={listSort} options={LIST_SORT_OPTIONS} onChange={(v) => { setListSort(v); setListingsShow(INITIAL_REVEAL); }} />
             </div>
           </div>
 
@@ -1764,7 +1779,7 @@ export default function CollectionPage() {
             <div style={{ padding:'6px 8px', borderBottom:`1px solid ${alpha(VL.neutral, 0.05)}`, flexShrink:0, background:alpha(VL.neutral, 0.015) }}>
               <div style={{ display:'flex', gap:3, flexWrap:'wrap', marginBottom:4 }}>
                 <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:`1px solid ${alpha(VL.brandMe, ALPHA.borderStrong)}`, background: alpha(VL.brandMe, ALPHA.tint), fontSize:9, fontWeight:700, color:'var(--vl-text-muted)', cursor:'pointer' }}>ME</span>
-                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid rgb(var(--vl-purple) / .28)', background:'rgb(var(--vl-purple) / .13)', fontSize:9, fontWeight:700, color:'var(--vl-purple-tint)', cursor:'pointer' }}>T</span>
+                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid rgb(var(--vl-purple-tint) / .28)', background:'rgb(var(--vl-purple-tint) / .13)', fontSize:9, fontWeight:700, color:'var(--vl-purple-tint)', cursor:'pointer' }}>T</span>
                 <FilterBtn label="Min price" />
                 <FilterBtn label="Max price" />
                 <FilterBtn label="Max rank" />
@@ -1881,7 +1896,7 @@ export default function CollectionPage() {
               <span style={{ fontSize:11, fontWeight:700, color:'var(--vl-text-primary)', letterSpacing:'0.5px' }}>
                 TRADES <span
                   
-                  style={{ color:'var(--vl-purple-primary)', fontWeight:600 }}
+                  style={{ color:'var(--vl-purple-tint)', fontWeight:600 }}
                 >({visibleEvents.length.toLocaleString()}{events.length > visibleEvents.length ? ` / ${events.length.toLocaleString()}` : ''})</span>
               </span>
               <LiveDot />
@@ -1923,7 +1938,7 @@ export default function CollectionPage() {
                 size="sm"
               />
               <span style={{ fontSize:10, color:'var(--vl-text-muted)' }}>Sort:</span>
-              <DropBtn label="trade date" />
+              <SortMenu value={tradeSort} options={TRADE_SORT_OPTIONS} onChange={(v) => { setTradeSort(v); setTradesShow(INITIAL_REVEAL); }} />
             </div>
           </div>
 
@@ -1931,7 +1946,7 @@ export default function CollectionPage() {
             <div style={{ padding:'6px 8px', borderBottom:`1px solid ${alpha(VL.neutral, 0.05)}`, flexShrink:0, background:alpha(VL.neutral, 0.015) }}>
               <div style={{ display:'flex', gap:3, flexWrap:'wrap', marginBottom:4 }}>
                 <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:`1px solid ${alpha(VL.brandMe, ALPHA.borderStrong)}`, background: alpha(VL.brandMe, ALPHA.tint), fontSize:9, fontWeight:700, color:'var(--vl-text-muted)', cursor:'pointer' }}>ME</span>
-                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid rgb(var(--vl-purple) / .28)', background:'rgb(var(--vl-purple) / .13)', fontSize:9, fontWeight:700, color:'var(--vl-purple-tint)', cursor:'pointer' }}>T</span>
+                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid rgb(var(--vl-purple-tint) / .28)', background:'rgb(var(--vl-purple-tint) / .13)', fontSize:9, fontWeight:700, color:'var(--vl-purple-tint)', cursor:'pointer' }}>T</span>
                 <FilterBtn label="Min price" />
                 <FilterBtn label="Max price" />
                 <FilterBtn label="Max rank" />
@@ -1953,10 +1968,10 @@ export default function CollectionPage() {
             style={{ flex:1, overflowY:'auto' }}
             className="scroll-area"
             onScroll={(e) => {
-              if (tradesShow >= visibleEvents.length) return;
+              if (tradesShow >= tradeView.length) return;
               const el = e.currentTarget;
               if (el.scrollHeight - el.scrollTop - el.clientHeight < 200) {
-                setTradesShow(s => Math.min(s + GROW_STEP, visibleEvents.length));
+                setTradesShow(s => Math.min(s + GROW_STEP, tradeView.length));
               }
             }}
           >
