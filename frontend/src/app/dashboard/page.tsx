@@ -697,7 +697,7 @@ export default function Dashboard() {
   const handleRowClick = (row: MergedRow) => {
     setSelected(row.slug);
     stashCollectionPreview(row.slug, row.avatarUrl);
-    window.location.href = `/collection/${encodeURIComponent(row.slug)}`;
+    window.open(`/collection/${encodeURIComponent(row.slug)}`, '_blank', 'noopener,noreferrer');
   };
 
   return (

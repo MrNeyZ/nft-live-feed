@@ -714,7 +714,7 @@ export const FeedCard = memo(function FeedCard({
         {/* Middle column */}
         <div style={FC_MIDDLE_COL_STYLE}>
           <div style={FC_NAME_ROW_STYLE}>
-            {/* NFT name: plain left click → /collection/<slug> (same tab);
+            {/* NFT name: plain left click → /collection/<slug> (new tab);
                 middle / modifier click keeps the native Solscan token link
                 (href). On the collection's own page there's nowhere to go,
                 so it stays Solscan. Fallback to <span> only when no
@@ -731,7 +731,7 @@ export const FeedCard = memo(function FeedCard({
                   const collHref = `/collection/${encodeURIComponent(slug)}`;
                   if (window.location.pathname === collHref) return;
                   e.preventDefault();
-                  window.location.href = collHref;
+                  window.open(collHref, '_blank', 'noopener,noreferrer');
                 }}
                 style={FC_NAME_LINK_STYLE}
                 onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
