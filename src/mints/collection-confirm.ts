@@ -30,7 +30,7 @@
  */
 import { getAsset } from '../enrichment/helius-das';
 import { isMintTrackerEnabled } from '../runtime/mode';
-import { fetchMetaFromJsonUri } from '../enrichment/metaplex-onchain';
+import { fetchMetaFromJsonUri, getOnchainNameUri } from '../enrichment/metaplex-onchain';
 import { getLmnftInfoByMint } from '../enrichment/lmnft';
 import { getMagicEdenCollectionName } from '../enrichment/me-collection-name';
 import { resolveArtProofInfo } from '../enrichment/artproof';
@@ -228,6 +228,11 @@ function countDistinctImages(collection: string | null): number {
   return perColl?.size ?? 0;
 }
 
+/** groupingKey → collection DAS already confirmed for it (+ its name). Lets
+ *  later mints of the same drop skip DAS (see runAttempt). Bounded. */
+const confirmedGroups = new Map<string, { coll: string; collName: string | null }>();
+let metricCheap = 0;
+
 interface Pending {
   groupingKey:      string;
   mintAddress:      string;
@@ -336,8 +341,18 @@ async function runAttempt(entry: Pending): Promise<void> {
   // per-asset name (e.g. "Micros #8881"), not the stripped "Micros".
   let rawNftName:     string | null = null;
   try {
-    metricGetAsset++;
-    const meta = await getAsset(entry.mintAddress, 'collection_confirm');
+    // Group already DAS-confirmed for this exact collection → this mint only
+    // needs its own name + image: read name/uri from chain (1 credit) instead
+    // of a 10-credit DAS call; the image comes from the json_uri fetch below.
+    const known = confirmedGroups.get(entry.groupingKey);
+    const cheap = known && known.coll === entry.parserCollection
+      ? await getOnchainNameUri(entry.mintAddress)
+      : null;
+    if (cheap) metricCheap++; else metricGetAsset++;
+    const meta = cheap
+      ? { collectionAddress: known!.coll, nftName: cheap.name || null, imageUrl: null,
+          collectionName: known!.collName, jsonUri: cheap.uri }
+      : await getAsset(entry.mintAddress, 'collection_confirm');
     dasCollection  = meta.collectionAddress ?? null;
     // Trim DAS-surfaced names — fixed-width Metaplex / MPL Core name
     // buffers ship with trailing spaces, and we don't want
@@ -559,6 +574,13 @@ async function runAttempt(entry: Pending): Promise<void> {
     }
   }
   if (dasCollection) {
+    if (dasCollection === entry.parserCollection) {
+      if (confirmedGroups.size >= 5_000) confirmedGroups.delete(confirmedGroups.keys().next().value!);
+      const prev = confirmedGroups.get(entry.groupingKey);
+      confirmedGroups.set(entry.groupingKey, {
+        coll: dasCollection, collName: collectionName ?? prev?.collName ?? null,
+      });
+    }
     console.log(
       `[mints/launchpad-debug] mint=${entry.mintAddress} ` +
       `parserCollection=${entry.parserCollection} dasCollection=${dasCollection} ` +
@@ -664,7 +686,7 @@ const _metricsTimer = setInterval(() => {
     }
   }
   console.log(
-    `[mints/credits] getAsset=${metricGetAsset} ` +
+    `[mints/credits] getAsset=${metricGetAsset} cheapOnchain=${metricCheap} ` +
     `skippedBurst=${metricSkippedBurst} ` +
     `skippedFinal=${metricSkippedFinal} ` +
     `delayed=${metricDelayed} ` +
@@ -672,6 +694,7 @@ const _metricsTimer = setInterval(() => {
     `collections=${activeCollections}`,
   );
   metricGetAsset     = 0;
+  metricCheap        = 0;
   metricSkippedBurst = 0;
   metricSkippedFinal = 0;
   metricDelayed      = 0;

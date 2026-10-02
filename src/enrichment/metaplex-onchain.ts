@@ -396,3 +396,54 @@ export async function fetchMetaFromJsonUri(
     return none;
   }
 }
+
+// ─── Cheap name + uri (1 credit) ─────────────────────────────────────────────
+
+const MPL_CORE_PROGRAM = 'CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d';
+
+/** MPL Core BaseAssetV1: key u8 | owner 32 | update_authority (u8 tag, +32
+ *  unless None) | name (u32 len + bytes) | uri (u32 len + bytes). */
+function parseCoreAsset(data: Buffer): { name: string; uri: string } | null {
+  try {
+    if (data.length < 1 || data[0] !== 1) return null;   // Key::AssetV1
+    let off = 1 + 32;
+    const uaTag = data[off]; off += 1;
+    if (uaTag !== 0) off += 32;
+    const nameLen = data.readUInt32LE(off); off += 4;
+    const name = data.subarray(off, off + nameLen).toString('utf8').replace(/\0/g, '').trim(); off += nameLen;
+    const uriLen = data.readUInt32LE(off); off += 4;
+    const uri = data.subarray(off, off + uriLen).toString('utf8').replace(/\0/g, '').trim();
+    return uri ? { name, uri } : null;
+  } catch { return null; }
+}
+
+async function getAccountB64(address: string, apiKey: string): Promise<{ owner: string; data: Buffer } | null> {
+  const res = await fetch(`https://beta.helius-rpc.com/?api-key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 'acct', method: 'getAccountInfo', params: [address, { encoding: 'base64' }] }),
+    signal: AbortSignal.timeout(4_000),
+  });
+  if (!res.ok) return null;
+  const j = await res.json() as { result?: { value?: { owner?: string; data?: [string, string] } | null } };
+  const v = j.result?.value;
+  if (!v?.data?.[0] || !v.owner) return null;
+  return { owner: v.owner, data: Buffer.from(v.data[0], 'base64') };
+}
+
+/**
+ * Name + json uri straight from chain for an MPL Core asset or a Token
+ * Metadata mint — one getAccountInfo (1 credit) in the common Core case,
+ * two for TM (mint account owner check is skipped: we go straight to the
+ * metadata PDA when the address is not a Core asset). Null on any miss.
+ */
+export async function getOnchainNameUri(mint: string): Promise<{ name: string; uri: string } | null> {
+  const apiKey = process.env.HELIUS_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const acct = await getAccountB64(mint, apiKey);
+    if (acct?.owner === MPL_CORE_PROGRAM) return parseCoreAsset(acct.data);
+    const pda = await getAccountB64(deriveMetadataPda(mint), apiKey);
+    return pda ? parseMetadataAccount(pda.data) : null;
+  } catch { return null; }
+}
