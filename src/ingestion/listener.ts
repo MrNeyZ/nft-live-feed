@@ -223,7 +223,11 @@ const MPL_CORE_POLL_INTERVAL_MS = parseInt(process.env.MINT_MPL_CORE_POLL_INTERV
 // 2026-05-29: lowered default 50 → 25. Measured mpl_core rate is ~20 sigs/15s;
 // limit=50 over-fetched by ~2.5×. 25 keeps 1.25× burst headroom over the
 // observed rate while halving idle credit drain. Env override still honored.
-const MPL_CORE_POLL_LIMIT       = parseInt(process.env.MINT_MPL_CORE_POLL_LIMIT       ?? '25',   10) || 25;
+// 2026-10-02: 25 → 200. getSignaturesForAddress costs 1 credit regardless of
+// limit, and live sweeps were hitting the 5-page cap (sigs=125 pages=5) — the
+// small page multiplied calls instead of saving credits. Already-seen sigs are
+// skipped via seenSigs without a getTransaction.
+const MPL_CORE_POLL_LIMIT       = parseInt(process.env.MINT_MPL_CORE_POLL_LIMIT       ?? '200',  10) || 200;
 // At-cap pagination safety cap. When a live mpl_core sweep returns the full
 // MPL_CORE_POLL_LIMIT (cursor-band overflow — the documented mint-loss), keep
 // paging with before=<oldest fetched> (still bounded by until=prevCursor) up to
