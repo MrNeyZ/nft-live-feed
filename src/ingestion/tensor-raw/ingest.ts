@@ -12,6 +12,8 @@
  * an SSE card is emitted immediately from Helius webhook data, then patched
  * once the raw parse completes.
  */
+import { noteIngestOutcome } from '../sig-terminal';
+import { wsSeenInfo } from '../ws-seen';
 import { parseRawTensorTransaction } from './parser';
 import { parseRawMeTransaction } from '../me-raw/parser';
 import { fetchRawTx, markSigFetched } from '../me-raw/ingest';
@@ -171,6 +173,16 @@ export async function ingestTensorRaw(
   heliusTx?: HeliusEnhancedTransaction,
   priority: Priority = 'medium',
 ): Promise<IngestOutcome> {
+  const outcome = await _ingestTensorRaw(sig, heliusTx, priority);
+  noteIngestOutcome(sig, outcome);
+  return outcome;
+}
+
+async function _ingestTensorRaw(
+  sig: string,
+  heliusTx?: HeliusEnhancedTransaction,
+  priority: Priority = 'medium',
+): Promise<IngestOutcome> {
   // ── Fast path ───────────────────────────────────────────────────────────────
   let fastPathInserted = false;
   let fastParser: string | undefined;
@@ -298,7 +310,7 @@ export async function ingestTensorRaw(
           `  ${meResult.event.marketplace}/${meResult.event.nftType}` +
           `  ${meResult.event.priceSol.toFixed(4)} SOL` +
           `  mint=${meResult.event.mintAddress.slice(0, 8)}...`+
-    `  via=${priority}`,
+    `  via=${priority}` + (priority === 'high' ? '' : `  ws=${wsSeenInfo(sig)}`),
         );
         console.log(`INSERT_DEBUG_PARSED ${meResult.event.signature} tamm_to_me_raw ${meResult.event.marketplace} ${meResult.event.mintAddress}`);
         let tammMeId: string | null;
@@ -448,7 +460,7 @@ export async function ingestTensorRaw(
     `  ${result.event.marketplace}/${result.event.nftType}` +
     `  ${result.event.priceSol.toFixed(4)} SOL` +
     `  mint=${result.event.mintAddress.slice(0, 8)}...`+
-    `  via=${priority}`,
+    `  via=${priority}` + (priority === 'high' ? '' : `  ws=${wsSeenInfo(sig)}`),
   );
 
   console.log(`INSERT_DEBUG_PARSED ${result.event.signature} ${tag} ${result.event.marketplace} ${result.event.mintAddress}`);

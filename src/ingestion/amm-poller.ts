@@ -15,6 +15,7 @@
  * the same sig across successive polls (the Helius `until=cursor` window is
  * exclusive, but we keep it as a belt-and-suspenders guard for log fidelity).
  */
+import { terminalOutcome, sigTerminalStats } from './sig-terminal';
 import { ingestMeRaw, rpcLimiterAbortQueued } from './me-raw/ingest';
 import { ingestTensorRaw } from './tensor-raw/ingest';
 import { ingestOrbisRaw } from './orbis-raw/ingest';
@@ -70,7 +71,10 @@ function envIntMs(name: string, fallback: number): number {
   const n = parseInt(raw, 10);
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
-const INTERVAL_MS      = envIntMs('AMM_POLLER_INTERVAL_MS', 10_000);
+// Default 10 s → 30 s (2026-10-02) to match prod .env (already 30 s). The
+// poller recovers ~40% of sales Helius WS never delivers (measured via the
+// `via=` ingest log), so it stays — cadence only sets their latency.
+const INTERVAL_MS      = envIntMs('AMM_POLLER_INTERVAL_MS', 30_000);
 // Emergency cost guard: when the sales-side logsSubscribe is dead (see
 // isSalesWsDead), polling is the only path AND it fetches a getTransaction
 // for every program-touching sig — mostly non-sale on me_v2/mmm/tcomp. To
@@ -91,6 +95,10 @@ const TICK_STAGGER_MS  = 600;
  *  drain can't spam getSignaturesForAddress at full 2.5 s rate. */
 const SLOW_INTERVAL_MS = 10_000;
 const PAGE_SIZE   = 20;
+/** getSignaturesForAddress page size. Decoupled from PAGE_SIZE (which still
+ *  sizes the per-sweep dispatch budgets): same 1 credit per call, so one
+ *  100-sig page replaces up to five 20-sig pages at the slower cadence. */
+const SIG_PAGE_LIMIT = 100;
 /** Fresh-path dispatch concurrency at the amm-poller layer. The real
  *  throttle is still the shared rpcLimiter downstream (4 concurrent /
  *  75 ms gap) — this just bounds how many `target.ingest` calls this
@@ -256,7 +264,7 @@ async function fetchPage(
   targetName: string,
 ): Promise<SigInfo[]> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const params: any = { limit: PAGE_SIZE, commitment: 'confirmed' };
+  const params: any = { limit: SIG_PAGE_LIMIT, commitment: 'confirmed' };
   if (until)  params.until  = until;
   if (before) params.before = before;
 
@@ -271,7 +279,7 @@ async function fetchPage(
     `[sig/amm] target=${targetName}  ` +
     `until=${until ? until.slice(0, 8) + '…' : 'null'}  ` +
     `before=${before ? before.slice(0, 8) + '…' : 'null'}  ` +
-    `limit=${PAGE_SIZE}`,
+    `limit=${SIG_PAGE_LIMIT}`,
   );
   const res = await fetch(rpcUrl(), {
     method:  'POST',
@@ -369,7 +377,7 @@ async function fetchSinceCursor(
     if (page.length === 0) { hitFloor = true; break; }
     all.push(...page);
     // Short page means we reached the `until` boundary — no gap possible.
-    if (page.length < PAGE_SIZE) { hitFloor = true; break; }
+    if (page.length < SIG_PAGE_LIMIT) { hitFloor = true; break; }
     // Saturated page — page further back in time.
     before = page[page.length - 1].signature;
     lastBefore = before;
@@ -827,6 +835,17 @@ async function sweepTarget(target: PollTarget): Promise<void> {
           if (i !== undefined) outcomes[i] = 'confirmed_irrelevant';
           return;
         }
+        // Already terminally ingested by another path (usually the WS, minutes
+        // earlier) → reuse that verdict instead of a second getTransaction.
+        // See sig-terminal.ts.
+        const known = terminalOutcome(sig);
+        if (known) {
+          sigTerminalStats.used++;
+          rememberOutcome(sig, known);
+          const i = pageIdxBySig.get(sig);
+          if (i !== undefined) outcomes[i] = known;
+          return;
+        }
         incFired(sourceLabel);
         try {
           outcome = isMmmLean
@@ -1053,7 +1072,7 @@ export function startAmmPoller(): void {
       // Degraded cadence wins when sales WS is dead; otherwise slow on
       // saturation, else normal.
       const next = isSalesWsDead() ? DEGRADED_INTERVAL_MS
-                 : saturatedTargets.size > 0 ? SLOW_INTERVAL_MS
+                 : saturatedTargets.size > 0 ? Math.max(SLOW_INTERVAL_MS, INTERVAL_MS)
                  : INTERVAL_MS;
       arm(next);
     }, delay);

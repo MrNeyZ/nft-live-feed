@@ -34,6 +34,7 @@ import { incPrefilterSkip, incSigListFetch, getMplCoreParsedMints } from './tele
 import { noteSigList } from './sig-list-audit';
 import { dispatchMmmDeferred, markMmmNoiseShed } from './mmm-prefilter';
 import { logsProveNonSale, markWsNonSale } from './ws-nonsale-verdict';
+import { noteWsSeen, noteWsFired } from './ws-seen';
 import { recordDispatch as auditRecordDispatch, startSalesPrefilterAudit } from './sales-prefilter-audit';
 import { incFired, sourceFromTargetName, startSourceStats } from './source-stats';
 import { isSigTarget, saleDebug } from './sale-debug';
@@ -989,6 +990,7 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
     lastNotificationTs.set(target.name, Date.now());
     if (!wsEverReal.get(target.name)) wsEverReal.set(target.name, true);
     stats.seen++;
+    if (!MINT_TARGET_NAMES.has(target.name)) noteWsSeen(value.signature, target.name);
 
     if (value.err !== null && value.err !== undefined) {
       stats.filtered++;
@@ -1206,6 +1208,7 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
     }
 
     stats.fired++;
+    noteWsFired(sig);
     if (isSigTarget(sig)) {
       saleDebug('prefilter_pass', sig, { program: target.name, path: 'ws_listener', priority: 'high' });
     }

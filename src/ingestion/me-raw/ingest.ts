@@ -17,6 +17,8 @@
  * marketplace, seller for pNFT escrow cases) and pushes a `rawpatch` SSE
  * event so connected clients update their cards in place.
  */
+import { noteIngestOutcome } from '../sig-terminal';
+import { wsSeenInfo } from '../ws-seen';
 import { parseRawMeTransaction } from './parser';
 import { RawSolanaTx } from './types';
 import { insertSaleEvent, patchSaleEventRaw } from '../../db/insert';
@@ -748,7 +750,9 @@ export async function ingestMeRaw(
   heliusTx?: HeliusEnhancedTransaction,
   priority: Priority = 'medium',
 ): Promise<IngestOutcome> {
-  return _ingestMeRaw(sig, heliusTx, priority);
+  const outcome = await _ingestMeRaw(sig, heliusTx, priority);
+  noteIngestOutcome(sig, outcome);
+  return outcome;
 }
 
 async function _ingestMeRaw(
@@ -1015,7 +1019,7 @@ async function _ingestMeRaw(
     `  ${result.event.marketplace}/${result.event.nftType}` +
     `  ${result.event.priceSol.toFixed(4)} SOL` +
     `  mint=${result.event.mintAddress.slice(0, 8)}...`+
-    `  via=${priority}`,
+    `  via=${priority}` + (priority === 'high' ? '' : `  ws=${wsSeenInfo(sig)}`),
   );
 
   console.log(`INSERT_DEBUG_PARSED ${result.event.signature} me_v2_raw ${result.event.marketplace} ${result.event.mintAddress}`);
