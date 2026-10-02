@@ -6,6 +6,7 @@
 import { TtlCache } from './cache';
 import { incGetAsset, incSearchAssets, incGetAssetsByOwner, type GetAssetSource } from '../helius-credit-metrics';
 import { nonBlankName } from './name-util';
+import { getPool } from '../db/client';
 
 export interface NftMetadata {
   nftName: string | null;
@@ -226,10 +227,49 @@ function extractImageUrl(asset: DasAsset | undefined): string | null {
   return stillImage;
 }
 
+// ── Persistent DAS cache (sale path only) ───────────────────────────────────
+// Survives restarts and catches resales of the same mint (~20% of a day's
+// sold mints). Only complete responses (name + collection) are stored, and
+// only sale-path reasons read it — mint-pipeline callers (collection_confirm
+// etc.) need fresh DAS because fresh mints index their collection late.
+const PERSIST_REASONS: ReadonlySet<GetAssetSource> = new Set(['sale_enrich', 'seller_collection_count']);
+const PERSIST_MAX_AGE_DAYS = 30;
+
+async function readPersistedAsset(mint: string): Promise<DasAsset | null> {
+  try {
+    const { rows } = await getPool().query<{ asset: DasAsset }>(
+      `SELECT asset FROM das_asset_cache
+        WHERE mint_address = $1 AND fetched_at > now() - make_interval(days => $2)`,
+      [mint, PERSIST_MAX_AGE_DAYS],
+    );
+    return rows[0]?.asset ?? null;
+  } catch { return null; }
+}
+
+function persistAsset(mint: string, asset: DasAsset): void {
+  const hasCollection = asset.grouping?.some((g) => g.group_key === 'collection' && g.group_value);
+  if (!hasCollection || !nonBlankName(asset.content?.metadata?.name)) return;
+  getPool().query(
+    `INSERT INTO das_asset_cache (mint_address, asset, fetched_at) VALUES ($1, $2, now())
+     ON CONFLICT (mint_address) DO UPDATE SET asset = EXCLUDED.asset, fetched_at = now()`,
+    [mint, JSON.stringify(asset)],
+  ).catch(() => { /* cache write is best-effort */ });
+}
+
 export async function getAsset(mintAddress: string, reason?: GetAssetSource): Promise<NftMetadata> {
   if (!process.env.HELIUS_API_KEY) throw new Error('HELIUS_API_KEY not set');
 
-  const { asset, source } = await fetchAssetWithSource(mintAddress);
+  let asset: DasAsset | null = null;
+  let source: FetchSource = 'network';
+  const persist = reason != null && PERSIST_REASONS.has(reason);
+  if (persist && assetHitCache.get(mintAddress) === undefined) {
+    asset = await readPersistedAsset(mintAddress);
+    if (asset) { assetHitCache.set(mintAddress, asset); source = 'hit_cache'; }
+  }
+  if (!asset) {
+    ({ asset, source } = await fetchAssetWithSource(mintAddress));
+    if (persist && asset && source === 'network') persistAsset(mintAddress, asset);
+  }
   if (reason && source === 'network') incGetAsset(reason);
   if (!asset) throw new Error('DAS getAsset failed');
 
