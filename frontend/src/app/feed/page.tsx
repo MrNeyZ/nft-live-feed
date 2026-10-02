@@ -254,9 +254,19 @@ export default function FeedPage() {
   const isPaused = paused || hoverPaused;
   // Per-source data health (defaults to 'ok' before the backend's first
   // `status` frame lands so a brand-new mount doesn't show a false alert).
-  const [sourceState, setSourceState] = useState<{ magiceden: 'ok' | 'stale'; tensor: 'ok' | 'stale' }>(
-    { magiceden: 'ok', tensor: 'ok' },
+  const [sourceState, setSourceState] = useState<{ magiceden: 'ok' | 'stale'; tensor: 'ok' | 'stale'; ingest: 'ok' | 'stale' }>(
+    { magiceden: 'ok', tensor: 'ok', ingest: 'ok' },
   );
+  // Liveness indicator inputs (replaces the old Pause/Resume button): SSE
+  // connection state as React state, newest sale time, and a slow clock so
+  // "last sale Xm ago" stays current.
+  const [sseStatus, setSseStatus] = useState<'connecting' | 'open' | 'error'>('connecting');
+  const [lastSaleTs, setLastSaleTs] = useState<number | null>(null);
+  const [nowTs, setNowTs] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowTs(Date.now()), 15_000);
+    return () => clearInterval(t);
+  }, []);
   // SSE socket-level status — distinct from `sourceState` (which reflects
   // backend-reported upstream API freshness). Surfaced via console only;
   // no UI slot exists for connection state and the existing meStale chip
@@ -264,6 +274,28 @@ export default function FeedPage() {
   // of useState so transitions don't trigger re-renders nobody reads.
   const sseStatusRef = useRef<'connecting' | 'open' | 'error'>('connecting');
   const meStale = sourceState.magiceden === 'stale';
+  const health = (() => {
+    const RED = '#e0888a', GOLD = 'var(--vl-gold-primary)', GREEN = 'var(--vl-green-primary)';
+    const ageMin = lastSaleTs != null ? Math.floor((nowTs - lastSaleTs) / 60_000) : null;
+    const lastTxt = ageMin == null ? 'no sales yet' : ageMin < 1 ? 'last sale <1m ago' : `last sale ${ageMin}m ago`;
+    if (sseStatus !== 'open') {
+      return { color: RED, label: sseStatus === 'connecting' ? 'Connecting…' : 'Offline', title: 'Feed connection lost — reconnecting automatically' };
+    }
+    if (sourceState.ingest === 'stale') {
+      return { color: RED, label: 'Ingest down', title: `Backend is not receiving sales (WS dead or ingestion off) — ${lastTxt}` };
+    }
+    if (paused) return { color: GOLD, label: 'Paused', title: 'Paused via ⌘K — new sales are buffered' };
+    const stale = [meStale && 'ME', sourceState.tensor === 'stale' && 'Tensor'].filter(Boolean);
+    if (stale.length) {
+      return { color: GOLD, label: `${stale.join(' + ')} stale`, title: `No ${stale.join(' / ')} sales for 90s+ while the other source is active — ${lastTxt}` };
+    }
+    const quiet = ageMin != null && ageMin >= 2;
+    return {
+      color: GREEN,
+      label: quiet ? `Live · ${ageMin}m` : 'Live',
+      title: quiet ? `Pipeline healthy — market quiet, ${lastTxt}` : `Pipeline healthy — ${lastTxt}`,
+    };
+  })();
   // Avatar-preview overlay state. One modal per page; clicking another thumb
   // just replaces the URL. Close (backdrop click / Escape) is owned by the
   // shared ImagePreviewOverlay.
@@ -492,6 +524,7 @@ export default function FeedPage() {
       if (cancelled) return;
       es?.close();
       sseStatusRef.current = 'connecting';
+      setSseStatus('connecting');
       es = new EventSource(`${API_BASE}/api/events/stream`);
       // Reset backoff once the connection lands so the next disconnect
       // starts from 1 s again instead of inheriting the prior cap.
@@ -499,6 +532,7 @@ export default function FeedPage() {
         attempt = 0;
         lastFrameAt = Date.now();
         sseStatusRef.current = 'open';
+        setSseStatus('open');
         console.debug('[sse/feed] connected');
       });
       // Heartbeat: backend emits `ping` every 25 s. We only need it to keep
@@ -506,6 +540,7 @@ export default function FeedPage() {
       es.addEventListener('ping', markFrame);
       es.addEventListener('sale', (e: MessageEvent) => {
         markFrame();
+        setLastSaleTs(Date.now());
         try {
           const raw = fromBackend(JSON.parse(e.data) as BackendEvent);
           // Inject any persisted seller-remaining count we already
@@ -682,7 +717,7 @@ export default function FeedPage() {
         markFrame();
         try {
           const { source, state } = JSON.parse(e.data) as {
-            source: 'magiceden' | 'tensor';
+            source: 'magiceden' | 'tensor' | 'ingest';
             state:  'ok' | 'stale';
           };
           setSourceState(prev => ({ ...prev, [source]: state }));
@@ -690,6 +725,7 @@ export default function FeedPage() {
       });
       es.addEventListener('error', () => {
         sseStatusRef.current = 'error';
+        setSseStatus('error');
         console.warn('[sse/feed] connection error — scheduling reconnect');
         es?.close();
         scheduleReconnect();
@@ -735,6 +771,10 @@ export default function FeedPage() {
             // snapshot so they never enter state on refresh (no flash).
             .filter(ev => !isFeedEventBlacklisted(ev, blacklistSetRef.current));
           captureScroll();
+          if (events.length > 0) {
+            const newest = Math.max(...events.map(ev => ev.ts).filter(Number.isFinite));
+            if (Number.isFinite(newest)) setLastSaleTs(prev => Math.max(prev ?? 0, newest));
+          }
           dispatch({ type: 'snapshot', events });
         })
         .catch(() => { /* snapshot failed — live stream still attempts to connect */ });
@@ -976,7 +1016,7 @@ export default function FeedPage() {
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <h1 style={{ fontSize: 15, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.2px' }}>Live events</h1>
-                <LiveDot />
+                <LiveDot color={health.color} />
                 {/* Event count — dimmed from var(--vl-purple-primary) → var(--vl-text-muted) so the
                     title "Live events" + the LiveDot stay primary; the
                     count is supplementary context (operator usually
@@ -1015,12 +1055,23 @@ export default function FeedPage() {
                 {/* Density + Hover-pause live inside the Settings panel below —
                     the top bar stays [Settings][Pause]. (vl.feed.density
                     persistence + pause logic unchanged.) */}
-                <Pill
-                  active
-                  color={paused ? 'var(--vl-gold-primary)' : 'var(--vl-green-primary)'}
-                  onClick={() => setPaused(p => !p)}
-                  label={paused ? '▶ Resume' : '⏸ Pause'}
-                />
+                {/* Liveness indicator — status, not a control. Manual pause is
+                    still reachable via ⌘K and shows up here as "Paused". */}
+                <span
+                  title={health.title}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    height: 24, padding: '0 10px', borderRadius: 6,
+                    fontSize: 11, fontWeight: 600, letterSpacing: '0.3px',
+                    color: health.color,
+                    border: `1px solid color-mix(in srgb, ${health.color} 35%, transparent)`,
+                    background: `color-mix(in srgb, ${health.color} 8%, transparent)`,
+                    whiteSpace: 'nowrap', cursor: 'default',
+                  }}
+                >
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: health.color, flexShrink: 0 }} />
+                  {health.label}
+                </span>
               </div>
             </div>
 

@@ -183,7 +183,7 @@ export interface ListingRefreshHint {
 /** Per-marketplace data-source health flip. Emitted by source-health.ts
  *  when a source transitions ok ↔ stale. Forwarded over SSE as `status`. */
 export interface SourceStatusWire {
-  source: 'magiceden' | 'tensor';
+  source: 'magiceden' | 'tensor' | 'ingest';
   state:  'ok' | 'stale';
 }
 

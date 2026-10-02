@@ -52,7 +52,7 @@ export interface BotApiEnvelopeMeta {
 // ─── Health ──────────────────────────────────────────────────────────────
 
 export interface BotApiSourceHealth {
-  source: 'magiceden' | 'tensor';
+  source: 'magiceden' | 'tensor' | 'ingest';
   state:  'ok' | 'stale';
 }
 

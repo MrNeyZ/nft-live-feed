@@ -17,8 +17,12 @@
 
 import { saleEventBus } from '../events/emitter';
 import type { SaleEvent } from '../models/sale-event';
+import { isSalesWsDead } from '../ingestion/listener';
+import { getMode } from '../runtime/mode';
 
-export type SourceKey   = 'magiceden' | 'tensor';
+// 'ingest' = our own sale pipeline (runtime mode on + sales WS delivering),
+// so the UI can tell "market is quiet" apart from "we stopped receiving".
+export type SourceKey   = 'magiceden' | 'tensor' | 'ingest';
 export type SourceState = 'ok' | 'stale';
 
 export interface SourceStatusWire {
@@ -26,14 +30,15 @@ export interface SourceStatusWire {
   state:  SourceState;
 }
 
-const SOURCES: ReadonlyArray<SourceKey> = ['magiceden', 'tensor'];
+const MARKET_SOURCES: ReadonlyArray<'magiceden' | 'tensor'> = ['magiceden', 'tensor'];
+const SOURCES: ReadonlyArray<SourceKey> = [...MARKET_SOURCES, 'ingest'];
 const STALE_AFTER_MS = 90_000;
 const TICK_MS        = 15_000;
 
 const lastEventTs = new Map<SourceKey, number>();
 const lastState   = new Map<SourceKey, SourceState>();
 
-function classifySource(marketplace: string): SourceKey | null {
+function classifySource(marketplace: string): 'magiceden' | 'tensor' | null {
   if (marketplace === 'magic_eden' || marketplace === 'magic_eden_amm') return 'magiceden';
   if (marketplace === 'tensor'     || marketplace === 'tensor_amm')     return 'tensor';
   return null;
@@ -58,11 +63,20 @@ function fmtAge(ageMs: number): string {
 
 function tick(): void {
   const now = Date.now();
-  for (const k of SOURCES) {
+  {
+    const next: SourceState = (getMode() === 'off' || isSalesWsDead()) ? 'stale' : 'ok';
+    const prev = lastState.get('ingest') ?? 'ok';
+    if (prev !== next) {
+      lastState.set('ingest', next);
+      saleEventBus.emitSourceStatus({ source: 'ingest', state: next });
+      console.log(`[source-health] ingest ${prev} -> ${next}  mode=${getMode()}`);
+    }
+  }
+  for (const k of MARKET_SOURCES) {
     const last  = lastEventTs.get(k);
     const ageMs = last != null ? now - last : Infinity;
 
-    const other: SourceKey = k === 'magiceden' ? 'tensor' : 'magiceden';
+    const other = k === 'magiceden' ? 'tensor' : 'magiceden';
     const otherLast  = lastEventTs.get(other);
     const otherAgeMs = otherLast != null ? now - otherLast : Infinity;
 
