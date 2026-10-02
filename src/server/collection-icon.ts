@@ -16,7 +16,7 @@
 
 import { Router, Request, Response } from 'express';
 import { getPool } from '../db/client';
-import { getByCollection } from './listings-store';
+import { peekByCollection } from './listings-store';
 import { rateLimit, isValidSlug } from './rate-limit';
 
 const SUCCESS_TTL_MS   = 24 * 60 * 60_000;   // 24 h — revisit only once a day
@@ -56,7 +56,7 @@ async function fetchIcon(slug: string): Promise<string | null> {
   // with the listings panel below it. First non-null image wins; the store's
   // iteration order is stable within a process for a given slug.
   try {
-    for (const l of getByCollection(slug)) {
+    for (const l of peekByCollection(slug)) {
       if (l.imageUrl) { url = l.imageUrl; break; }
     }
   } catch { /* swallow */ }

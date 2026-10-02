@@ -27,6 +27,7 @@ const MINTS_TTL_MS  = 6 * 60 * 60_000;
 const PAGE_LIMIT    = 1000;
 // Sweeps stop here; mints past the cap resolve lazily via resolveMintSlug.
 const MAX_PAGES     = 10;
+const PRIME_FAIL_BACKOFF_MS = 10 * 60_000;
 
 const collToSlug = new Map<string, string>();
 const slugToColl = new Map<string, string>();
@@ -153,6 +154,9 @@ export async function primeSlugMints(slug: string, record: (mints: string[], slu
     mintsLoadedAt.set(slug, Date.now());
     console.log(`[listing-stream/resolver] primed slug=${slug} by=${by} mints=${total} pages=${pages} (~${pages * 10} credits)`);
   } catch (err) {
+    // Back off instead of retrying on the very next touch — a 429 burst used
+    // to re-fire the sweep on every request for the slug.
+    mintsLoadedAt.set(slug, Date.now() - MINTS_TTL_MS + PRIME_FAIL_BACKOFF_MS);
     console.warn(`[listing-stream/resolver] prime failed slug=${slug}`, (err as Error).message);
   } finally {
     inFlight.delete(slug);

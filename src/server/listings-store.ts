@@ -1382,6 +1382,15 @@ export async function ensureFresh(slug: string, ttlMs: number = DEFAULT_TTL_MS):
 
 export function getByCollection(slug: string): Listing[] {
   touch(slug);
+  return peekByCollection(slug);
+}
+
+/** Read whatever listings are already in memory WITHOUT touching the slug.
+ *  For incidental readers (collection icons rendered across the feed /
+ *  dashboard): a touch marks the slug warm and fires a full DAS mint sweep
+ *  (primeSlugMints, 10 credits per 1000 NFTs) — hundreds of icon requests
+ *  were priming hundreds of collections nobody opened. */
+export function peekByCollection(slug: string): Listing[] {
   const ids = byCollection.get(slug);
   if (!ids) return [];
   const out: Listing[] = [];
