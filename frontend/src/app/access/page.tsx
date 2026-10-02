@@ -4,7 +4,7 @@
 // when an unauthed visitor hits /access they see the LoginScreen and when
 // an authed-but-unmoded visitor hits it they see Select Runtime. This page
 // only needs to handle the third state — already authed with an active
-// mode — by bouncing them onto the real app at /dashboard, otherwise Gate
+// mode — by bouncing them onto the real app at /feed, otherwise Gate
 // would fall through to render our (intentionally empty) children and the
 // screen would look blank.
 
@@ -27,7 +27,7 @@ export default function AccessPage() {
       if (!isAuthed()) return;
       const mode = await fetchMode();
       if (cancelled) return;
-      if (mode && mode !== 'off') window.location.replace('/dashboard');
+      if (mode && mode !== 'off') window.location.replace('/feed');
     })();
     return () => { cancelled = true; };
   }, []);
