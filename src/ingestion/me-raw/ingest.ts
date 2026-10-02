@@ -1014,7 +1014,8 @@ async function _ingestMeRaw(
     `  ix=${(result.event.rawData as Record<string, unknown>)._instruction}` +
     `  ${result.event.marketplace}/${result.event.nftType}` +
     `  ${result.event.priceSol.toFixed(4)} SOL` +
-    `  mint=${result.event.mintAddress.slice(0, 8)}...`,
+    `  mint=${result.event.mintAddress.slice(0, 8)}...`+
+    `  via=${priority}`,
   );
 
   console.log(`INSERT_DEBUG_PARSED ${result.event.signature} me_v2_raw ${result.event.marketplace} ${result.event.mintAddress}`);

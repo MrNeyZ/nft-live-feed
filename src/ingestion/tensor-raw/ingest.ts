@@ -297,7 +297,8 @@ export async function ingestTensorRaw(
           `  ix=${meIx}` +
           `  ${meResult.event.marketplace}/${meResult.event.nftType}` +
           `  ${meResult.event.priceSol.toFixed(4)} SOL` +
-          `  mint=${meResult.event.mintAddress.slice(0, 8)}...`,
+          `  mint=${meResult.event.mintAddress.slice(0, 8)}...`+
+    `  via=${priority}`,
         );
         console.log(`INSERT_DEBUG_PARSED ${meResult.event.signature} tamm_to_me_raw ${meResult.event.marketplace} ${meResult.event.mintAddress}`);
         let tammMeId: string | null;
@@ -446,7 +447,8 @@ export async function ingestTensorRaw(
     `  ix=${(result.event.rawData as Record<string, unknown>)._instruction}` +
     `  ${result.event.marketplace}/${result.event.nftType}` +
     `  ${result.event.priceSol.toFixed(4)} SOL` +
-    `  mint=${result.event.mintAddress.slice(0, 8)}...`,
+    `  mint=${result.event.mintAddress.slice(0, 8)}...`+
+    `  via=${priority}`,
   );
 
   console.log(`INSERT_DEBUG_PARSED ${result.event.signature} ${tag} ${result.event.marketplace} ${result.event.mintAddress}`);
