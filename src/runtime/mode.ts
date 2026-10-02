@@ -34,6 +34,15 @@ let transition: Promise<void> = Promise.resolve();
  *  continuing after OFF. */
 let generation = 0;
 
+/** Always-on sales ingestion (default ON): the backend boots straight into
+ *  `sales_only` and stays there 24/7 so /collections charts and our own
+ *  collection stats keep accumulating while no tab is open. Idle auto-off
+ *  and UI `off` requests are ignored while this is set. Kill switch:
+ *  RUNTIME_ALWAYS_ON=0 restores the old operator-selected / idle-off flow.
+ *  Listings stay page-scoped (listing stream, unaffected by this). */
+export const ALWAYS_ON_MODE: RuntimeMode | null =
+  process.env.RUNTIME_ALWAYS_ON === '0' ? null : 'sales_only';
+
 export function getMode(): RuntimeMode { return current; }
 export function currentGeneration(): number { return generation; }
 export function isActive(): boolean { return current !== 'off'; }

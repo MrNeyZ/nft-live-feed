@@ -23,7 +23,7 @@
 
 import { Router, Request, Response, NextFunction } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
-import { getMode, setMode, isRuntimeMode, isMintTrackerEnabled, setMintTrackerEnabled } from '../runtime/mode';
+import { getMode, setMode, isRuntimeMode, ALWAYS_ON_MODE, isMintTrackerEnabled, setMintTrackerEnabled } from '../runtime/mode';
 import { lastObservedMintAt, currentRecentMints, getTfCounts } from '../mints/accumulator';
 import { getPool } from '../db/client';
 import { recentMintMetaSnapshot } from '../events/emitter';
@@ -55,6 +55,7 @@ function markFrontendSeen(): void {
 function ensureWatcher(): void {
   if (watcherTimer) return;
   watcherTimer = setInterval(() => {
+    if (ALWAYS_ON_MODE) return;
     if (getMode() === 'off') return;
     if (lastSeenAt == null) return;
     if (Date.now() - lastSeenAt <= IDLE_TIMEOUT_MS) return;
@@ -323,6 +324,12 @@ export function createRuntimeRouter(): Router {
     const requested = req.body?.mode;
     if (!isRuntimeMode(requested)) {
       res.status(400).json({ error: 'invalid mode' });
+      return;
+    }
+    // Always-on: the UI can switch between active modes but never turn sales
+    // ingestion off (power button / Mint Tracker pick just keep it running).
+    if (ALWAYS_ON_MODE && requested === 'off') {
+      res.json({ ok: true, mode: getMode() });
       return;
     }
     await setMode(requested);

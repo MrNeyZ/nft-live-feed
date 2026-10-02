@@ -25,7 +25,7 @@ import { startResizeStatusResolver } from './mints/resize-status-resolver';
 import { startRentRefundResolver } from './mints/rent-refund-resolver';
 import { startMmmPoolTypeResolver } from './ingestion/mmm-pool-type-resolver';
 import { startMintEventPersistence } from './mints/event-store';
-import { isMintTrackerEnabled, getMode } from './runtime/mode';
+import { isMintTrackerEnabled, getMode, setMode, ALWAYS_ON_MODE } from './runtime/mode';
 import { startListener } from './ingestion/listener';
 import { startMintReconcile } from './ingestion/mint-raw/reconcile';
 import { startMintNameBackfill } from './mints/name-backfill';
@@ -238,6 +238,14 @@ async function main() {
   // and calls /api/runtime/mode to pick FULL / BUDGET / SALES_ONLY. Previous
   // auto-start on boot is intentionally removed so OFF is the honest initial
   // state and the UI mode-select screen is the single source of truth.
+
+  // Always-on (default): boot straight into sales ingestion — see
+  // ALWAYS_ON_MODE in runtime/mode.ts. RUNTIME_ALWAYS_ON=0 keeps the old
+  // OFF-at-boot behaviour described above.
+  if (ALWAYS_ON_MODE) {
+    console.log(`[runtime] always-on: starting mode=${ALWAYS_ON_MODE} at boot`);
+    void setMode(ALWAYS_ON_MODE);
+  }
 
   // startPoller(); // Helius enhanced poller — disabled, see import above
 }

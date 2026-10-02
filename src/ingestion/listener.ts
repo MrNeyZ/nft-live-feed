@@ -2069,13 +2069,15 @@ export function stopListener(): void {
 
   // Tear down program sockets.
   for (const [, ws] of activeSockets) {
-    try { ws.removeAllListeners(); ws.terminate(); } catch { /* noop */ }
+    // No-op 'error' listener: terminate() on a still-CONNECTING socket emits
+    // 'error' async, which would be an uncaughtException with none attached.
+    try { ws.removeAllListeners(); ws.on('error', () => {}); ws.terminate(); } catch { /* noop */ }
   }
   activeSockets.clear();
 
   // Tear down slot socket.
   if (slotWs) {
-    try { slotWs.removeAllListeners(); slotWs.terminate(); } catch { /* noop */ }
+    try { slotWs.removeAllListeners(); slotWs.on('error', () => {}); slotWs.terminate(); } catch { /* noop */ }
     slotWs = null;
   }
 
