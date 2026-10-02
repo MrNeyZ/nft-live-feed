@@ -382,6 +382,16 @@ async function runAttempt(entry: Pending): Promise<void> {
         if (!nftName) nftName = cleanName(off.name);
       }
     }
+    // Cheap path couldn't produce an image (json host down / slow) → fall
+    // back to DAS for this mint so the card never loses its image to the
+    // credit saving.
+    if (cheap && !imageUrl) {
+      metricGetAsset++;
+      const das = await getAsset(entry.mintAddress, 'collection_confirm');
+      imageUrl = das.imageUrl ?? null;
+      if (!rawNftName && das.nftName?.trim()) rawNftName = das.nftName.trim();
+      if (!nftName) nftName = cleanName(das.nftName);
+    }
   } catch {
     // Transient failure — treat as "no answer this round" and let
     // the next retry attempt try again.
